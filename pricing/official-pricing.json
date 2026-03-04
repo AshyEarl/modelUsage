@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "updated_at": "2026-03-04T00:00:00Z",
+  "models": {
+    "haiku-4-5": {
+      "input_cost_per_mtoken": 1.0,
+      "output_cost_per_mtoken": 5.0,
+      "cache_write_5m_cost_per_mtoken": 1.25,
+      "cache_write_1h_cost_per_mtoken": 1.25,
+      "cache_read_cost_per_mtoken": 0.1
+    },
+    "sonnet-4-5": {
+      "input_cost_per_mtoken": 3.0,
+      "output_cost_per_mtoken": 15.0,
+      "cache_write_5m_cost_per_mtoken": 3.75,
+      "cache_write_1h_cost_per_mtoken": 3.75,
+      "cache_read_cost_per_mtoken": 0.3
+    },
+    "sonnet-4-6": {
+      "input_cost_per_mtoken": 3.0,
+      "output_cost_per_mtoken": 15.0,
+      "cache_write_5m_cost_per_mtoken": 3.75,
+      "cache_write_1h_cost_per_mtoken": 3.75,
+      "cache_read_cost_per_mtoken": 0.3
+    },
+    "opus-4-5": {
+      "input_cost_per_mtoken": 5.0,
+      "output_cost_per_mtoken": 25.0,
+      "cache_write_5m_cost_per_mtoken": 6.25,
+      "cache_write_1h_cost_per_mtoken": 6.25,
+      "cache_read_cost_per_mtoken": 0.5
+    },
+    "opus-4-6": {
+      "input_cost_per_mtoken": 5.0,
+      "output_cost_per_mtoken": 25.0,
+      "cache_write_5m_cost_per_mtoken": 6.25,
+      "cache_write_1h_cost_per_mtoken": 6.25,
+      "cache_read_cost_per_mtoken": 0.5
+    },
+    "gpt-5": {
+      "input_cost_per_mtoken": 1.25,
+      "output_cost_per_mtoken": 10.0,
+      "cache_write_5m_cost_per_mtoken": null,
+      "cache_write_1h_cost_per_mtoken": null,
+      "cache_read_cost_per_mtoken": 0.125
+    },
+    "gpt-5-codex": {
+      "input_cost_per_mtoken": 1.25,
+      "output_cost_per_mtoken": 10.0,
+      "cache_write_5m_cost_per_mtoken": null,
+      "cache_write_1h_cost_per_mtoken": null,
+      "cache_read_cost_per_mtoken": 0.125
+    },
+    "gpt-5.1-codex": {
+      "input_cost_per_mtoken": 1.25,
+      "output_cost_per_mtoken": 10.0,
+      "cache_write_5m_cost_per_mtoken": null,
+      "cache_write_1h_cost_per_mtoken": null,
+      "cache_read_cost_per_mtoken": 0.125
+    },
+    "gpt-5.1-codex-max": {
+      "input_cost_per_mtoken": 1.25,
+      "output_cost_per_mtoken": 10.0,
+      "cache_write_5m_cost_per_mtoken": null,
+      "cache_write_1h_cost_per_mtoken": null,
+      "cache_read_cost_per_mtoken": 0.125
+    },
+    "gpt-5.2": {
+      "input_cost_per_mtoken": 1.75,
+      "output_cost_per_mtoken": 14.0,
+      "cache_write_5m_cost_per_mtoken": null,
+      "cache_write_1h_cost_per_mtoken": null,
+      "cache_read_cost_per_mtoken": 0.175
+    },
+    "gpt-5.2-codex": {
+      "input_cost_per_mtoken": 1.75,
+      "output_cost_per_mtoken": 14.0,
+      "cache_write_5m_cost_per_mtoken": null,
+      "cache_write_1h_cost_per_mtoken": null,
+      "cache_read_cost_per_mtoken": 0.175
+    },
+    "gpt-5.3-codex": {
+      "input_cost_per_mtoken": 1.75,
+      "output_cost_per_mtoken": 14.0,
+      "cache_write_5m_cost_per_mtoken": null,
+      "cache_write_1h_cost_per_mtoken": null,
+      "cache_read_cost_per_mtoken": 0.175
+    }
+  }
+}
