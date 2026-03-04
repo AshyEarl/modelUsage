@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Prepare release archive
+        run: |
+          mkdir -p dist
+          cp target/release/modelUsage dist/modelUsage
+          cp README.md dist/README.md
+          cp README-zh.md dist/README-zh.md
+          cp PRICING.md dist/PRICING.md
+          cp PRICING-zh.md dist/PRICING-zh.md
+          tar -C dist -czf modelUsage-linux-x86_64.tar.gz .
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: modelUsage-linux-x86_64
+          path: modelUsage-linux-x86_64.tar.gz
+
+      - name: Publish GitHub release assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: modelUsage-linux-x86_64.tar.gz
+

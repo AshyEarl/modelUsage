@@ -38,6 +38,20 @@ Not included on purpose:
 - TUI
 - many compatibility flags for `ccusage`
 
+## Platform support
+
+Current support target:
+
+- Linux only
+
+Why:
+
+- the tool reads Linux home-directory layouts that are currently verified only on this environment
+- the current release workflow only builds a Linux binary
+- installation and alias examples in this repository are written for Linux shells
+
+Other platforms may work after small changes, but they are not documented or tested yet.
+
 ## Install
 
 Run directly in the project:
@@ -58,6 +72,41 @@ After installation:
 ```bash
 modelUsage --claude
 modelUsage --codex
+```
+
+Download a prebuilt binary from GitHub Releases:
+
+1. open the repository Releases page
+2. download `modelUsage-linux-x86_64.tar.gz`
+3. extract it
+4. move `modelUsage` into a directory on your `PATH`, for example `~/.local/bin`
+
+Example:
+
+```bash
+tar -xzf modelUsage-linux-x86_64.tar.gz
+install -m 755 modelUsage ~/.local/bin/modelUsage
+```
+
+You can also download the latest CI artifact from a tagged release workflow run if you do not want to build locally.
+
+## Versioning
+
+Current crate version:
+
+- `0.1.0`
+
+Versioning rule:
+
+- `Cargo.toml` is the source of truth for the crate version
+- Git tags should use the `vX.Y.Z` format
+- the release workflow builds and uploads the Linux binary when a `v*` tag is pushed
+
+Typical release flow:
+
+```bash
+git tag v0.1.0
+git push github v0.1.0
 ```
 
 ## Usage

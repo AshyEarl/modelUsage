@@ -38,6 +38,20 @@
 - TUI
 - 一堆兼容 `ccusage` 的参数
 
+## 平台支持
+
+当前支持目标：
+
+- 仅支持 Linux
+
+原因：
+
+- 工具读取的 home 目录布局目前只在这个 Linux 环境里验证过
+- 当前 release workflow 只构建 Linux 二进制
+- 本仓库里的安装方式和 alias 示例都是按 Linux shell 写的
+
+其他平台后续也许能支持，但目前没有文档保证，也没有测试覆盖。
+
 ## 安装
 
 直接在项目里运行：
@@ -58,6 +72,41 @@ cargo install --path /home/ashyearl/workspace/rust/modelUsage --force
 ```bash
 modelUsage --claude
 modelUsage --codex
+```
+
+也可以从 GitHub Releases 下载预编译二进制：
+
+1. 打开仓库的 Releases 页面
+2. 下载 `modelUsage-linux-x86_64.tar.gz`
+3. 解压
+4. 把 `modelUsage` 放到你的 `PATH` 目录里，比如 `~/.local/bin`
+
+示例：
+
+```bash
+tar -xzf modelUsage-linux-x86_64.tar.gz
+install -m 755 modelUsage ~/.local/bin/modelUsage
+```
+
+如果你不想本地编译，也可以直接使用打 tag 后的 GitHub Actions 产物。
+
+## 版本说明
+
+当前 crate 版本：
+
+- `0.1.0`
+
+版本规则：
+
+- `Cargo.toml` 是版本号的唯一来源
+- Git tag 使用 `vX.Y.Z` 格式
+- 当推送 `v*` tag 时，release workflow 会自动构建并上传 Linux 二进制
+
+一次典型发版流程：
+
+```bash
+git tag v0.1.0
+git push github v0.1.0
 ```
 
 ## 使用方式
