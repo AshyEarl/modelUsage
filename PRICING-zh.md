@@ -40,7 +40,7 @@
 
 ## 官方来源
 
-截至 **2026-03-04**，OpenAI 价格是人工从官方页面核对后写入的：
+截至 **2026-03-06**，OpenAI 价格是人工从官方页面核对后写入的：
 
 - OpenAI Pricing  
   https://developers.openai.com/api/docs/pricing
@@ -74,6 +74,8 @@ Anthropic / Claude 的价格也按官方公开价格维护。
 - `gpt-5.2`
 - `gpt-5.2-codex`
 - `gpt-5.3-codex`
+- `gpt-5.4`
+- `gpt-5.4-pro`
 
 ## 文件格式
 
@@ -84,7 +86,7 @@ Anthropic / Claude 的价格也按官方公开价格维护。
 ```json
 {
   "version": 1,
-  "updated_at": "2026-03-04T00:00:00Z",
+  "updated_at": "2026-03-06T00:00:00Z",
   "models": {
     "gpt-5.2-codex": {
       "input_cost_per_mtoken": 1.75,
