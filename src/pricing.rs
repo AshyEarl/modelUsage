@@ -100,7 +100,14 @@ mod tests {
     #[test]
     fn has_new_codex_models() {
         let prices = load_bundled_prices().unwrap();
-        for model in ["gpt-5.1-codex-max", "gpt-5.2", "gpt-5.2-codex", "gpt-5.3-codex"] {
+        for model in [
+            "gpt-5.1-codex-max",
+            "gpt-5.2",
+            "gpt-5.2-codex",
+            "gpt-5.3-codex",
+            "gpt-5.4",
+            "gpt-5.4-pro",
+        ] {
             assert!(prices.models.contains_key(model), "missing model: {model}");
         }
     }

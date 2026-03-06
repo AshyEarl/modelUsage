@@ -94,7 +94,7 @@ install -m 755 modelUsage ~/.local/bin/modelUsage
 
 当前 crate 版本：
 
-- `0.1.0`
+- `0.1.1`
 
 版本规则：
 
@@ -105,8 +105,8 @@ install -m 755 modelUsage ~/.local/bin/modelUsage
 一次典型发版流程：
 
 ```bash
-git tag v0.1.0
-git push github v0.1.0
+git tag v0.1.1
+git push github v0.1.1
 ```
 
 ## 使用方式

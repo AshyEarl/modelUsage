@@ -94,7 +94,7 @@ You can also download the latest CI artifact from a tagged release workflow run 
 
 Current crate version:
 
-- `0.1.0`
+- `0.1.1`
 
 Versioning rule:
 
@@ -105,8 +105,8 @@ Versioning rule:
 Typical release flow:
 
 ```bash
-git tag v0.1.0
-git push github v0.1.0
+git tag v0.1.1
+git push github v0.1.1
 ```
 
 ## Usage
