@@ -21,7 +21,12 @@ pub fn render_daily_report(report: &DailyReport) -> String {
     table.set_header(header);
 
     for row in &report.rows {
-        table.add_row(render_row(row, show_reasoning, show_cache_write, codex_like));
+        table.add_row(render_row(
+            row,
+            show_reasoning,
+            show_cache_write,
+            codex_like,
+        ));
     }
 
     let total_input = display_input_tokens(&report.totals.usage, codex_like);
@@ -41,7 +46,10 @@ pub fn render_daily_report(report: &DailyReport) -> String {
     total_row.extend([
         right(report.totals.usage.cache_read),
         right(total_tokens),
-        Cell::new(format_cost(report.totals.cost_usd, report.totals.partial_cost)),
+        Cell::new(format_cost(
+            report.totals.cost_usd,
+            report.totals.partial_cost,
+        )),
     ]);
     table.add_row(total_row);
 
@@ -59,12 +67,25 @@ pub fn render_daily_report(report: &DailyReport) -> String {
     if report.totals.partial_cost && !report.totals.unpriced_models.is_empty() {
         output.push('\n');
         output.push_str("partial cost; unpriced models: ");
-        output.push_str(&report.totals.unpriced_models.iter().cloned().collect::<Vec<_>>().join(", "));
+        output.push_str(
+            &report
+                .totals
+                .unpriced_models
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
     }
     output
 }
 
-fn render_row(row: &DailyRow, show_reasoning: bool, show_cache_write: bool, codex_like: bool) -> Vec<Cell> {
+fn render_row(
+    row: &DailyRow,
+    show_reasoning: bool,
+    show_cache_write: bool,
+    codex_like: bool,
+) -> Vec<Cell> {
     let display_input = display_input_tokens(&row.usage, codex_like);
     let display_total = display_total_tokens(&row.usage, codex_like);
     let mut cells = vec![

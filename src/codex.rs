@@ -31,12 +31,20 @@ pub fn parse_file(path: &Path) -> Result<Vec<FileDailyRow>> {
                 }
             }
             Some("event_msg") => {
-                let timestamp = match value.get("timestamp").and_then(Value::as_str).and_then(parse_timestamp) {
+                let timestamp = match value
+                    .get("timestamp")
+                    .and_then(Value::as_str)
+                    .and_then(parse_timestamp)
+                {
                     Some(ts) => ts,
                     None => continue,
                 };
                 let payload = match value.get("payload") {
-                    Some(payload) if payload.get("type").and_then(Value::as_str) == Some("token_count") => payload,
+                    Some(payload)
+                        if payload.get("type").and_then(Value::as_str) == Some("token_count") =>
+                    {
+                        payload
+                    }
                     _ => continue,
                 };
                 let info = match payload.get("info") {
@@ -72,7 +80,10 @@ pub fn parse_file(path: &Path) -> Result<Vec<FileDailyRow>> {
                     current_model.clone()
                 };
                 let key = (timestamp.date_naive(), model);
-                daily.entry(key).or_default().add_assign(&raw_usage.into_usage_totals());
+                daily
+                    .entry(key)
+                    .or_default()
+                    .add_assign(&raw_usage.into_usage_totals());
             }
             _ => {}
         }
@@ -114,34 +125,53 @@ impl RawUsage {
             // cached_input is a subset of input for Codex, so map it directly to cache_read.
             // Codex 的 cached_input 属于 input 的子集，统一映射到 cache_read。
             cache_read: self.cached_input.min(self.input),
-            total: if self.total > 0 { self.total } else { self.input + self.output },
+            total: if self.total > 0 {
+                self.total
+            } else {
+                self.input + self.output
+            },
         }
     }
 
     fn is_zero(&self) -> bool {
-        self.input == 0 && self.cached_input == 0 && self.output == 0 && self.reasoning == 0 && self.total == 0
+        self.input == 0
+            && self.cached_input == 0
+            && self.output == 0
+            && self.reasoning == 0
+            && self.total == 0
     }
 }
 
 fn parse_raw_usage(value: &Value) -> Option<RawUsage> {
     Some(RawUsage {
-        input: value.get("input_tokens").and_then(Value::as_u64).unwrap_or(0),
+        input: value
+            .get("input_tokens")
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
         cached_input: value
             .get("cached_input_tokens")
             .or_else(|| value.get("cache_read_input_tokens"))
             .and_then(Value::as_u64)
             .unwrap_or(0),
-        output: value.get("output_tokens").and_then(Value::as_u64).unwrap_or(0),
+        output: value
+            .get("output_tokens")
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
         reasoning: value
             .get("reasoning_output_tokens")
             .and_then(Value::as_u64)
             .unwrap_or(0),
-        total: value.get("total_tokens").and_then(Value::as_u64).unwrap_or(0),
+        total: value
+            .get("total_tokens")
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
     })
 }
 
 fn parse_timestamp(raw: &str) -> Option<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(raw).ok().map(|dt| dt.with_timezone(&Utc))
+    DateTime::parse_from_rfc3339(raw)
+        .ok()
+        .map(|dt| dt.with_timezone(&Utc))
 }
 
 pub fn normalize_codex_model(raw: &str) -> String {
@@ -163,7 +193,10 @@ mod tests {
 
     #[test]
     fn strips_provider_prefix() {
-        assert_eq!(normalize_codex_model("openrouter/openai/gpt-5-codex"), "gpt-5-codex");
+        assert_eq!(
+            normalize_codex_model("openrouter/openai/gpt-5-codex"),
+            "gpt-5-codex"
+        );
         assert_eq!(normalize_codex_model("gpt-5.3-codex"), "gpt-5.3-codex");
         assert_eq!(normalize_codex_model("gpt-5.2"), "gpt-5.2");
     }
