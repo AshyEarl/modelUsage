@@ -107,7 +107,7 @@ Auto-update notes:
 
 Current crate version:
 
-- `0.1.3`
+- `0.1.4`
 
 Versioning rule:
 
@@ -118,8 +118,8 @@ Versioning rule:
 Typical release flow:
 
 ```bash
-git tag v0.1.3
-git push github v0.1.3
+git tag v0.1.4
+git push github v0.1.4
 ```
 
 ## Usage
@@ -152,6 +152,7 @@ modelUsage --update
 ### Claude-only
 
 ```text
+modelUsage v0.1.4
 Daily Token Usage Report
 
 ┌────────────┬─────────────────────────────────┬────────┬─────────┬─────────────┬────────────┬──────────────┬────────────┐
@@ -170,6 +171,7 @@ Total: 2 days, 5,590,935 tokens, $3.15
 ### Codex-only
 
 ```text
+modelUsage v0.1.4
 Daily Token Usage Report
 
 ┌────────────┬───────────────┬────────────┬───────────┬───────────┬─────────────┬──────────────┬────────────┐
