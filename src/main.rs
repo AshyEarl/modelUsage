@@ -31,10 +31,21 @@ fn real_main() -> Result<()> {
     if cli.json {
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
-        println!("{}", table::render_daily_report(&report));
+        println!(
+            "{}",
+            table::render_daily_report(&report, report_label(&cli))
+        );
     }
     if let Err(err) = update::maybe_check_for_updates(&cli) {
         eprintln!("warning: {err:#}");
     }
     Ok(())
+}
+
+fn report_label(cli: &Cli) -> &'static str {
+    match (cli.claude, cli.codex) {
+        (true, false) => "Claude",
+        (false, true) => "Codex",
+        _ => "Claude + Codex",
+    }
 }

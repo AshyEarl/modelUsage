@@ -1,7 +1,7 @@
 use crate::model::{DailyReport, DailyRow};
 use comfy_table::{Cell, CellAlignment, ContentArrangement, Table, presets::UTF8_FULL};
 
-pub fn render_daily_report(report: &DailyReport) -> String {
+pub fn render_daily_report(report: &DailyReport, report_label: &str) -> String {
     // Claude logs do not expose a stable reasoning field, so hide the column when the whole report is zero.
     // Claude 本地日志没有稳定的 reasoning 字段，整份报表都为 0 时就不展示这一列。
     let show_reasoning = report.totals.usage.reasoning > 0;
@@ -54,7 +54,8 @@ pub fn render_daily_report(report: &DailyReport) -> String {
     table.add_row(total_row);
 
     let mut output = String::new();
-    output.push_str("Daily Token Usage Report\n\n");
+    output.push_str(&format!("modelUsage v{}\n", env!("CARGO_PKG_VERSION")));
+    output.push_str(&format!("Daily Token Usage Report ({report_label})\n\n"));
     output.push_str(&table.to_string());
     output.push('\n');
     output.push('\n');
