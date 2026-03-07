@@ -1,5 +1,5 @@
 use crate::cache::{load_pricing_cache, save_pricing_cache};
-use crate::model::{PricingCache, UsageTotals};
+use crate::model::{PricingCache, SourceKind, UsageTotals};
 use anyhow::{Context, Result};
 use std::collections::BTreeSet;
 
@@ -31,9 +31,14 @@ fn load_bundled_prices() -> Result<PricingCache> {
     Ok(parsed)
 }
 
-pub fn compute_cost(model: &str, usage: &UsageTotals, prices: &PricingCache) -> Option<f64> {
+pub fn compute_cost(
+    source: SourceKind,
+    model: &str,
+    usage: &UsageTotals,
+    prices: &PricingCache,
+) -> Option<f64> {
     let price = prices.models.get(model)?;
-    if model.contains("codex") {
+    if source == SourceKind::Codex {
         // Cached input for Codex must use the cheaper cache-read price instead of the regular input price.
         // Codex 的 cached input 要按更低的 cache read 单价计费，不能和普通 input 混算。
         let cached = usage.cache_read.min(usage.input);
@@ -93,7 +98,7 @@ pub fn known_unpriced_models<'a>(
 #[cfg(test)]
 mod tests {
     use super::{compute_cost, load_bundled_prices};
-    use crate::model::UsageTotals;
+    use crate::model::{SourceKind, UsageTotals};
 
     #[test]
     fn computes_codex_cost() {
@@ -107,8 +112,24 @@ mod tests {
             cache_read: 5_420_416,
             total: 6_359_158,
         };
-        let cost = compute_cost("gpt-5-codex", &usage, &prices).unwrap();
+        let cost = compute_cost(SourceKind::Codex, "gpt-5-codex", &usage, &prices).unwrap();
         assert!((cost - 2.776117).abs() < 0.000001);
+    }
+
+    #[test]
+    fn computes_codex_source_cost_for_plain_gpt_model() {
+        let prices = load_bundled_prices().unwrap();
+        let usage = UsageTotals {
+            input: 1_915_287,
+            output: 24_844,
+            reasoning: 0,
+            cache_write_5m: 0,
+            cache_write_1h: 0,
+            cache_read: 1_456_128,
+            total: 1_940_131,
+        };
+        let cost = compute_cost(SourceKind::Codex, "gpt-5.4", &usage, &prices).unwrap();
+        assert!((cost - 1.8845895).abs() < 0.000001);
     }
 
     #[test]

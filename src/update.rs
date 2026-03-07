@@ -6,7 +6,7 @@ use chrono::{Duration, Utc};
 use std::cmp::Ordering;
 use std::env;
 use std::fs::{self, File};
-use std::io::{self, IsTerminal, Write};
+use std::io::{self, IsTerminal, Read, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Command;
@@ -15,6 +15,7 @@ const RELEASE_API_URL: &str = "https://api.github.com/repos/AshyEarl/modelUsage/
 const AUTO_CHECK_INTERVAL_HOURS: i64 = 24;
 const RELEASE_NOTES_MAX_LINES: usize = 5;
 const RELEASE_NOTES_MAX_CHARS: usize = 280;
+const DOWNLOAD_PROGRESS_STEP_BYTES: u64 = 512 * 1024;
 
 #[derive(Debug, Clone, serde::Deserialize)]
 struct GithubRelease {
@@ -53,6 +54,7 @@ pub fn maybe_check_for_updates(cli: &Cli) -> Result<()> {
         release_from_state(&state).filter(|release| is_newer_than_current(&release.version));
 
     if should_check_now(&state, now) {
+        print_checking_message();
         if let Ok(fresh_release) = fetch_latest_release() {
             state.version = 1;
             state.last_checked_at = Some(now);
@@ -86,6 +88,7 @@ pub fn maybe_check_for_updates(cli: &Cli) -> Result<()> {
 }
 
 pub fn run_manual_update() -> Result<()> {
+    print_checking_message();
     let release = match fetch_latest_release() {
         Ok(release) => release,
         Err(fetch_err) => {
@@ -133,7 +136,8 @@ fn should_check_now(state: &UpdateState, now: chrono::DateTime<Utc>) -> bool {
 
 fn fetch_latest_release() -> Result<ReleaseInfo> {
     let platform = current_platform_asset()?;
-    let response = ureq::get(RELEASE_API_URL)
+    let response = agent_for_url(RELEASE_API_URL)?
+        .get(RELEASE_API_URL)
         .set("Accept", "application/vnd.github+json")
         .set("User-Agent", "modelUsage-self-update")
         .call()
@@ -153,6 +157,45 @@ fn fetch_latest_release() -> Result<ReleaseInfo> {
         asset_name: asset.name.clone(),
         asset_url: asset.browser_download_url.clone(),
         release_notes_summary: summarize_release_notes(release.body.as_deref().unwrap_or("")),
+    })
+}
+
+fn agent_for_url(url: &str) -> Result<ureq::Agent> {
+    let mut builder = ureq::AgentBuilder::new();
+    if let Some(proxy_url) = proxy_url_for(url) {
+        builder = builder.proxy(
+            ureq::Proxy::new(&proxy_url)
+                .with_context(|| format!("invalid proxy URL: {proxy_url}"))?,
+        );
+    }
+    Ok(builder.build())
+}
+
+fn proxy_url_for(url: &str) -> Option<String> {
+    let lower_url = url.to_ascii_lowercase();
+    let is_https = lower_url.starts_with("https://");
+    let is_http = lower_url.starts_with("http://");
+
+    if is_https {
+        env_value(["https_proxy", "HTTPS_PROXY"])
+            .or_else(|| env_value(["http_proxy", "HTTP_PROXY"]))
+            .or_else(|| env_value(["all_proxy", "ALL_PROXY"]))
+    } else if is_http {
+        env_value(["http_proxy", "HTTP_PROXY"]).or_else(|| env_value(["all_proxy", "ALL_PROXY"]))
+    } else {
+        env_value(["all_proxy", "ALL_PROXY"])
+    }
+}
+
+fn env_value<const N: usize>(keys: [&str; N]) -> Option<String> {
+    keys.into_iter().find_map(|key| {
+        let value = env::var(key).ok()?;
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
     })
 }
 
@@ -217,7 +260,9 @@ fn install_release(release: &ReleaseInfo) -> Result<()> {
 
     let archive_path = temp_root.join(&release.asset_name);
     let extracted_path = temp_root.join("modelUsage");
+    print_status_line(&format!("Downloading {}...", release.asset_name));
     download_release_archive(&release.asset_url, &archive_path)?;
+    print_status_line("Extracting archive...");
     extract_release_binary(&archive_path, &temp_root)?;
 
     let staging_path = target_dir.join(format!(
@@ -226,6 +271,7 @@ fn install_release(release: &ReleaseInfo) -> Result<()> {
         Utc::now().timestamp_millis()
     ));
 
+    print_status_line("Replacing binary...");
     copy_binary_to_staging(&extracted_path, &staging_path)?;
     fs::rename(&staging_path, &current_exe).with_context(|| {
         format!(
@@ -236,19 +282,23 @@ fn install_release(release: &ReleaseInfo) -> Result<()> {
     })?;
     let _ = sync_directory(target_dir);
     let _ = fs::remove_dir_all(&temp_root);
+    finish_status_line("Update installed.");
     Ok(())
 }
 
 fn download_release_archive(url: &str, archive_path: &Path) -> Result<()> {
-    let response = ureq::get(url)
+    let response = agent_for_url(url)?
+        .get(url)
         .set("User-Agent", "modelUsage-self-update")
         .call()
         .with_context(|| format!("failed to download release archive from {url}"))?;
+    let total_bytes = response
+        .header("Content-Length")
+        .and_then(|value| value.parse::<u64>().ok());
     let mut reader = response.into_reader();
     let mut file = File::create(archive_path)
         .with_context(|| format!("failed to create {}", archive_path.display()))?;
-    io::copy(&mut reader, &mut file)
-        .with_context(|| format!("failed to write {}", archive_path.display()))?;
+    copy_with_progress(&mut reader, &mut file, total_bytes, archive_path)?;
     file.sync_all()
         .with_context(|| format!("failed to fsync {}", archive_path.display()))?;
     Ok(())
@@ -260,11 +310,14 @@ fn extract_release_binary(archive_path: &Path, output_dir: &Path) -> Result<()> 
         .arg(archive_path)
         .args(["-C"])
         .arg(output_dir)
-        .args(["modelUsage"])
         .output()
         .context("failed to execute tar for release archive")?;
     if !output.status.success() {
-        bail!("failed to extract release archive");
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if stderr.is_empty() {
+            bail!("failed to extract release archive");
+        }
+        bail!("failed to extract release archive: {stderr}");
     }
     Ok(())
 }
@@ -377,15 +430,123 @@ fn summarize_release_notes(body: &str) -> String {
     summary
 }
 
+fn print_checking_message() {
+    println!();
+    println!("Checking for updates...");
+}
+
+fn copy_with_progress(
+    reader: &mut impl Read,
+    writer: &mut impl Write,
+    total_bytes: Option<u64>,
+    archive_path: &Path,
+) -> Result<()> {
+    let mut buffer = [0_u8; 64 * 1024];
+    let mut copied = 0_u64;
+    let mut next_progress = DOWNLOAD_PROGRESS_STEP_BYTES;
+
+    loop {
+        let read = reader.read(&mut buffer).with_context(|| {
+            format!(
+                "failed to read download stream for {}",
+                archive_path.display()
+            )
+        })?;
+        if read == 0 {
+            break;
+        }
+        writer
+            .write_all(&buffer[..read])
+            .with_context(|| format!("failed to write {}", archive_path.display()))?;
+        copied += read as u64;
+
+        let should_print = match total_bytes {
+            Some(total) => copied >= next_progress || copied == total,
+            None => copied >= next_progress,
+        };
+        if should_print {
+            print_download_progress(copied, total_bytes);
+            next_progress = copied.saturating_add(DOWNLOAD_PROGRESS_STEP_BYTES);
+        }
+    }
+
+    print_download_progress(copied, total_bytes);
+    finish_status_line("Download complete.");
+    Ok(())
+}
+
+fn print_download_progress(copied: u64, total_bytes: Option<u64>) {
+    if io::stderr().is_terminal() {
+        match total_bytes {
+            Some(total) if total > 0 => {
+                let percent = (copied as f64 / total as f64) * 100.0;
+                eprint!(
+                    "\rDownloading... {:>5.1}% ({}/{})",
+                    percent.min(100.0),
+                    format_bytes(copied),
+                    format_bytes(total)
+                );
+            }
+            _ => {
+                eprint!("\rDownloading... {}", format_bytes(copied));
+            }
+        }
+        let _ = io::stderr().flush();
+    } else {
+        match total_bytes {
+            Some(total) if total > 0 => eprintln!(
+                "Downloading... {:>5.1}% ({}/{})",
+                (copied as f64 / total as f64 * 100.0).min(100.0),
+                format_bytes(copied),
+                format_bytes(total)
+            ),
+            _ => eprintln!("Downloading... {}", format_bytes(copied)),
+        }
+    }
+}
+
+fn print_status_line(message: &str) {
+    if io::stderr().is_terminal() {
+        eprintln!("{message}");
+    } else {
+        eprintln!("{message}");
+    }
+}
+
+fn finish_status_line(message: &str) {
+    if io::stderr().is_terminal() {
+        eprint!("\r\x1b[2K{message}\n");
+        let _ = io::stderr().flush();
+    } else {
+        eprintln!("{message}");
+    }
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut value = bytes as f64;
+    let mut unit_idx = 0_usize;
+    while value >= 1024.0 && unit_idx < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit_idx += 1;
+    }
+    if unit_idx == 0 {
+        format!("{bytes} {}", UNITS[unit_idx])
+    } else {
+        format!("{value:.1} {}", UNITS[unit_idx])
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        PlatformAsset, compare_versions, current_platform_asset, parse_version_triplet,
-        should_check_now, summarize_release_notes,
+        PlatformAsset, compare_versions, current_platform_asset, format_bytes,
+        parse_version_triplet, proxy_url_for, should_check_now, summarize_release_notes,
     };
     use crate::model::UpdateState;
     use chrono::{Duration, Utc};
     use std::cmp::Ordering;
+    use std::env;
 
     #[test]
     fn parses_release_tags() {
@@ -444,5 +605,42 @@ mod tests {
             Some(expected) => assert_eq!(current_platform_asset().unwrap(), expected),
             None => assert!(current_platform_asset().is_err()),
         }
+    }
+
+    #[test]
+    fn prefers_https_proxy_for_https_urls() {
+        unsafe {
+            env::set_var("HTTPS_PROXY", "http://secure-proxy:8443");
+            env::set_var("HTTP_PROXY", "http://plain-proxy:8080");
+        }
+        assert_eq!(
+            proxy_url_for("https://api.github.com/repos/AshyEarl/modelUsage/releases/latest"),
+            Some("http://secure-proxy:8443".to_string())
+        );
+        unsafe {
+            env::remove_var("HTTPS_PROXY");
+            env::remove_var("HTTP_PROXY");
+        }
+    }
+
+    #[test]
+    fn falls_back_to_http_proxy_for_http_urls() {
+        unsafe {
+            env::set_var("HTTP_PROXY", "http://plain-proxy:8080");
+        }
+        assert_eq!(
+            proxy_url_for("http://example.com/archive"),
+            Some("http://plain-proxy:8080".to_string())
+        );
+        unsafe {
+            env::remove_var("HTTP_PROXY");
+        }
+    }
+
+    #[test]
+    fn formats_progress_sizes() {
+        assert_eq!(format_bytes(512), "512 B");
+        assert_eq!(format_bytes(1_536), "1.5 KB");
+        assert_eq!(format_bytes(2_621_440), "2.5 MB");
     }
 }
