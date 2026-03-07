@@ -30,11 +30,15 @@ pub fn run(cli: Cli) -> Result<DailyReport> {
     let mut next_files: BTreeMap<String, FileCacheEntry> = BTreeMap::new();
 
     if include_claude {
-        let root = home_dir().context("failed to resolve home directory")?.join(".claude/projects");
+        let root = home_dir()
+            .context("failed to resolve home directory")?
+            .join(".claude/projects");
         scan_source(SourceKind::Claude, &root, &mut cache, &mut next_files)?;
     }
     if include_codex {
-        let root = home_dir().context("failed to resolve home directory")?.join(".codex/sessions");
+        let root = home_dir()
+            .context("failed to resolve home directory")?
+            .join(".codex/sessions");
         scan_source(SourceKind::Codex, &root, &mut cache, &mut next_files)?;
     }
 

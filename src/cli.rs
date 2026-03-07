@@ -1,8 +1,17 @@
 use clap::Parser;
 
 #[derive(Debug, Clone, Parser)]
-#[command(name = "modelUsage", version, about = "Summarize Claude and Codex local usage logs")]
+#[command(
+    name = "modelUsage",
+    version,
+    about = "Summarize Claude and Codex local usage logs"
+)]
 pub struct Cli {
+    /// Download and install the latest GitHub release binary.
+    /// 下载并安装最新的 GitHub Release 二进制。
+    #[arg(long, help = "Download and install the latest release binary")]
+    pub update: bool,
+
     /// Rebuild the stats cache from scratch by rescanning all local JSONL files.
     /// 丢弃已有统计缓存，重新全量扫描本地 JSONL。
     #[arg(long, help = "Rebuild the file cache from scratch")]

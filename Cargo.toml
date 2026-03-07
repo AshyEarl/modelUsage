@@ -1,6 +1,6 @@
 [package]
 name = "modelUsage"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 
 [dependencies]
@@ -11,4 +11,5 @@ comfy-table = "7.1"
 dirs = "6.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+ureq = { version = "2.12", default-features = false, features = ["json", "tls"] }
 walkdir = "2.5"

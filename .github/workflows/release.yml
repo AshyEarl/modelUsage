@@ -7,42 +7,68 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-linux:
-    runs-on: ubuntu-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            rust_target: x86_64-unknown-linux-gnu
+            asset_name: modelUsage-linux-x86_64.tar.gz
+          - runner: ubuntu-24.04-arm
+            rust_target: aarch64-unknown-linux-gnu
+            asset_name: modelUsage-linux-aarch64.tar.gz
+          - runner: macos-15
+            rust_target: aarch64-apple-darwin
+            asset_name: modelUsage-macos-aarch64.tar.gz
+    runs-on: ${{ matrix.runner }}
     permissions:
-      contents: write
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
 
       - name: Cache cargo registry
         uses: Swatinem/rust-cache@v2
 
       - name: Build release binary
-        run: cargo build --release
+        run: cargo build --release --target ${{ matrix.rust_target }}
 
       - name: Prepare release archive
         run: |
           mkdir -p dist
-          cp target/release/modelUsage dist/modelUsage
+          cp target/${{ matrix.rust_target }}/release/modelUsage dist/modelUsage
           cp README.md dist/README.md
           cp README-zh.md dist/README-zh.md
           cp PRICING.md dist/PRICING.md
           cp PRICING-zh.md dist/PRICING-zh.md
-          tar -C dist -czf modelUsage-linux-x86_64.tar.gz .
+          tar -C dist -czf ${{ matrix.asset_name }} .
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: modelUsage-linux-x86_64
-          path: modelUsage-linux-x86_64.tar.gz
+          name: ${{ matrix.asset_name }}
+          path: ${{ matrix.asset_name }}
+
+  publish-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download workflow artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
 
       - name: Publish GitHub release assets
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: modelUsage-linux-x86_64.tar.gz
-
+          files: dist/*.tar.gz

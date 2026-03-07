@@ -30,7 +30,12 @@ pub fn parse_file(path: &Path) -> Result<Vec<FileDailyRow>> {
             .and_then(|msg| msg.get("id"))
             .and_then(Value::as_str)
             .map(ToOwned::to_owned)
-            .or_else(|| value.get("uuid").and_then(Value::as_str).map(ToOwned::to_owned));
+            .or_else(|| {
+                value
+                    .get("uuid")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned)
+            });
         let Some(message_key) = message_key else {
             continue;
         };
@@ -74,10 +79,17 @@ fn parse_event(value: &Value) -> Option<UsageEvent> {
     // Some Claude logs only expose the total cache creation tokens without a 5m/1h split.
     // Put the remaining amount into the 5m bucket so the total token count stays intact.
     // Claude 有些日志只给 cache_creation 总数，不拆 5m/1h；剩余部分归到 5m，保证不丢数。
-    let remaining_cache_write = cache_creation_total.saturating_sub(cache_write_5m + cache_write_1h);
+    let remaining_cache_write =
+        cache_creation_total.saturating_sub(cache_write_5m + cache_write_1h);
 
-    let input = usage.get("input_tokens").and_then(Value::as_u64).unwrap_or(0);
-    let output = usage.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
+    let input = usage
+        .get("input_tokens")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let output = usage
+        .get("output_tokens")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
     let cache_read = usage
         .get("cache_read_input_tokens")
         .and_then(Value::as_u64)
@@ -105,7 +117,9 @@ fn parse_event(value: &Value) -> Option<UsageEvent> {
 }
 
 fn parse_timestamp(raw: &str) -> Option<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(raw).ok().map(|dt| dt.with_timezone(&Utc))
+    DateTime::parse_from_rfc3339(raw)
+        .ok()
+        .map(|dt| dt.with_timezone(&Utc))
 }
 
 pub fn normalize_claude_model(raw: &str) -> String {
@@ -134,7 +148,10 @@ mod tests {
 
     #[test]
     fn strips_date_suffix() {
-        assert_eq!(normalize_claude_model("claude-sonnet-4-5-20250929"), "sonnet-4-5");
+        assert_eq!(
+            normalize_claude_model("claude-sonnet-4-5-20250929"),
+            "sonnet-4-5"
+        );
         assert_eq!(normalize_claude_model("claude-opus-4-6"), "opus-4-6");
     }
 }

@@ -1,4 +1,4 @@
-use crate::model::{FileCacheEntry, PricingCache, SourceKind, StatsCache};
+use crate::model::{FileCacheEntry, PricingCache, SourceKind, StatsCache, UpdateState};
 use anyhow::{Context, Result};
 use dirs::cache_dir;
 use serde::de::DeserializeOwned;
@@ -8,12 +8,16 @@ use std::path::{Path, PathBuf};
 const CACHE_DIR_NAME: &str = "modelUsage";
 const STATS_FILE_NAME: &str = "stats.json";
 const PRICING_FILE_NAME: &str = "pricing.json";
+const UPDATE_FILE_NAME: &str = "update.json";
 
 pub fn cache_dir_path() -> Result<PathBuf> {
     // Store cache files under the system cache directory to avoid polluting the repo or home root.
     // 统一放到系统 cache 目录，避免污染项目目录和 home 根目录。
-    let dir = cache_dir().context("failed to resolve cache directory")?.join(CACHE_DIR_NAME);
-    fs::create_dir_all(&dir).with_context(|| format!("failed to create cache dir {}", dir.display()))?;
+    let dir = cache_dir()
+        .context("failed to resolve cache directory")?
+        .join(CACHE_DIR_NAME);
+    fs::create_dir_all(&dir)
+        .with_context(|| format!("failed to create cache dir {}", dir.display()))?;
     Ok(dir)
 }
 
@@ -23,6 +27,10 @@ pub fn stats_cache_path() -> Result<PathBuf> {
 
 pub fn pricing_cache_path() -> Result<PathBuf> {
     Ok(cache_dir_path()?.join(PRICING_FILE_NAME))
+}
+
+pub fn update_state_path() -> Result<PathBuf> {
+    Ok(cache_dir_path()?.join(UPDATE_FILE_NAME))
 }
 
 pub fn load_stats_cache() -> Result<StatsCache> {
@@ -39,6 +47,14 @@ pub fn load_pricing_cache() -> Result<Option<PricingCache>> {
 
 pub fn save_pricing_cache(cache: &PricingCache) -> Result<()> {
     save_json(pricing_cache_path()?.as_path(), cache)
+}
+
+pub fn load_update_state() -> Result<UpdateState> {
+    load_json(update_state_path()?.as_path()).map(|opt| opt.unwrap_or_default())
+}
+
+pub fn save_update_state(state: &UpdateState) -> Result<()> {
+    save_json(update_state_path()?.as_path(), state)
 }
 
 pub fn file_changed(entry: Option<&FileCacheEntry>, metadata: &fs::Metadata) -> bool {
@@ -71,8 +87,10 @@ fn load_json<T: DeserializeOwned>(path: &Path) -> Result<Option<T>> {
     if !path.exists() {
         return Ok(None);
     }
-    let raw = fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
-    let parsed = serde_json::from_str(&raw).with_context(|| format!("failed to parse {}", path.display()))?;
+    let raw =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let parsed = serde_json::from_str(&raw)
+        .with_context(|| format!("failed to parse {}", path.display()))?;
     Ok(Some(parsed))
 }
 

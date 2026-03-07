@@ -1,9 +1,12 @@
+use crate::model::PricingCache;
 use crate::model::{DailyReport, DailyRow, FileCacheEntry, ReportTotals, UsageTotals};
 use crate::pricing::{compute_cost, known_unpriced_models};
-use crate::model::PricingCache;
 use std::collections::{BTreeMap, BTreeSet};
 
-pub fn build_daily_report(entries: impl Iterator<Item = FileCacheEntry>, prices: &PricingCache) -> DailyReport {
+pub fn build_daily_report(
+    entries: impl Iterator<Item = FileCacheEntry>,
+    prices: &PricingCache,
+) -> DailyReport {
     let mut rows_by_date: BTreeMap<chrono::NaiveDate, DailyRow> = BTreeMap::new();
 
     for entry in entries {
@@ -40,7 +43,8 @@ pub fn build_daily_report(entries: impl Iterator<Item = FileCacheEntry>, prices:
             row.cost_usd = None;
         }
         if row.unpriced_models.is_empty() {
-            row.unpriced_models = known_unpriced_models(row.models.iter().map(String::as_str), prices);
+            row.unpriced_models =
+                known_unpriced_models(row.models.iter().map(String::as_str), prices);
         }
     }
 

@@ -139,3 +139,15 @@ pub struct DailyReport {
     pub rows: Vec<DailyRow>,
     pub totals: ReportTotals,
 }
+
+/// On-disk format for the update-check cache.
+/// 更新检查缓存文件格式。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UpdateState {
+    pub version: u32,
+    pub last_checked_at: Option<DateTime<Utc>>,
+    pub latest_version: Option<String>,
+    pub asset_name: Option<String>,
+    pub asset_url: Option<String>,
+    pub release_notes_summary: Option<String>,
+}

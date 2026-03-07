@@ -12,7 +12,11 @@ pub fn load_prices() -> Result<PricingCache> {
     // 这样结果更稳定，也更便于自己维护和发布一份公网 JSON。
     let bundled = load_bundled_prices()?;
     let cache = match load_pricing_cache()? {
-        Some(existing) if existing.updated_at >= bundled.updated_at && !existing.models.is_empty() => existing,
+        Some(existing)
+            if existing.updated_at >= bundled.updated_at && !existing.models.is_empty() =>
+        {
+            existing
+        }
         _ => {
             let _ = save_pricing_cache(&bundled);
             bundled
@@ -22,8 +26,8 @@ pub fn load_prices() -> Result<PricingCache> {
 }
 
 fn load_bundled_prices() -> Result<PricingCache> {
-    let parsed: PricingCache =
-        serde_json::from_str(OFFICIAL_PRICING_JSON).context("failed to parse bundled official pricing file")?;
+    let parsed: PricingCache = serde_json::from_str(OFFICIAL_PRICING_JSON)
+        .context("failed to parse bundled official pricing file")?;
     Ok(parsed)
 }
 
@@ -36,7 +40,12 @@ pub fn compute_cost(model: &str, usage: &UsageTotals, prices: &PricingCache) -> 
         let non_cached = usage.input.saturating_sub(cached);
         return Some(
             mtok(non_cached, price.input_cost_per_mtoken)
-                + mtok(cached, price.cache_read_cost_per_mtoken.unwrap_or(price.input_cost_per_mtoken))
+                + mtok(
+                    cached,
+                    price
+                        .cache_read_cost_per_mtoken
+                        .unwrap_or(price.input_cost_per_mtoken),
+                )
                 + mtok(usage.output, price.output_cost_per_mtoken),
         );
     }
@@ -60,7 +69,9 @@ pub fn compute_cost(model: &str, usage: &UsageTotals, prices: &PricingCache) -> 
             )
             + mtok(
                 usage.cache_read,
-                price.cache_read_cost_per_mtoken.unwrap_or(price.input_cost_per_mtoken),
+                price
+                    .cache_read_cost_per_mtoken
+                    .unwrap_or(price.input_cost_per_mtoken),
             ),
     )
 }
@@ -69,7 +80,10 @@ fn mtok(tokens: u64, price_per_million: f64) -> f64 {
     (tokens as f64 / 1_000_000.0) * price_per_million
 }
 
-pub fn known_unpriced_models<'a>(models: impl Iterator<Item = &'a str>, prices: &PricingCache) -> BTreeSet<String> {
+pub fn known_unpriced_models<'a>(
+    models: impl Iterator<Item = &'a str>,
+    prices: &PricingCache,
+) -> BTreeSet<String> {
     models
         .filter(|model| !prices.models.contains_key(*model))
         .map(ToOwned::to_owned)

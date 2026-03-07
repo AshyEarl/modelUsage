@@ -42,15 +42,15 @@
 
 当前支持目标：
 
-- 仅支持 Linux
+- Linux x86_64
+- Linux arm64
+- macOS arm64
 
-原因：
+说明：
 
-- 工具读取的 home 目录布局目前只在这个 Linux 环境里验证过
-- 当前 release workflow 只构建 Linux 二进制
-- 本仓库里的安装方式和 alias 示例都是按 Linux shell 写的
-
-其他平台后续也许能支持，但目前没有文档保证，也没有测试覆盖。
+- 假设 Claude / Codex 在这些平台上的 home 目录布局保持一致
+- release workflow 会为这三个目标构建并上传预编译压缩包
+- 文档中的 shell 安装示例可用于 Linux 和现代 macOS 终端
 
 ## 安装
 
@@ -72,12 +72,16 @@ cargo install --path /home/ashyearl/workspace/rust/modelUsage --force
 ```bash
 modelUsage --claude
 modelUsage --codex
+modelUsage --update
 ```
 
 也可以从 GitHub Releases 下载预编译二进制：
 
 1. 打开仓库的 Releases 页面
-2. 下载 `modelUsage-linux-x86_64.tar.gz`
+2. 下载与你平台匹配的压缩包：
+   - `modelUsage-linux-x86_64.tar.gz`
+   - `modelUsage-linux-aarch64.tar.gz`
+   - `modelUsage-macos-aarch64.tar.gz`
 3. 解压
 4. 把 `modelUsage` 放到你的 `PATH` 目录里，比如 `~/.local/bin`
 
@@ -90,23 +94,32 @@ install -m 755 modelUsage ~/.local/bin/modelUsage
 
 如果你不想本地编译，也可以直接使用打 tag 后的 GitHub Actions 产物。
 
+自动更新说明：
+
+- 自动检查只会在交互式终端里执行，并且放在主报表输出之后
+- 更新检查默认 24 小时最多执行一次
+- `--json` 和非 TTY 场景不会联网检查更新
+- `modelUsage --update` 会下载最新 GitHub Release，并原地替换当前二进制
+- 当前更新流程使用 Rust 内置 HTTP 请求，并会为 Linux x86_64、Linux arm64、macOS arm64 自动选择匹配的压缩包
+- 当前更新流程依赖系统可用的 `tar`
+
 ## 版本说明
 
 当前 crate 版本：
 
-- `0.1.1`
+- `0.1.2`
 
 版本规则：
 
 - `Cargo.toml` 是版本号的唯一来源
 - Git tag 使用 `vX.Y.Z` 格式
-- 当推送 `v*` tag 时，release workflow 会自动构建并上传 Linux 二进制
+- 当推送 `v*` tag 时，release workflow 会自动构建并上传 Linux x86_64、Linux arm64、macOS arm64 二进制
 
 一次典型发版流程：
 
 ```bash
-git tag v0.1.1
-git push github v0.1.1
+git tag v0.1.2
+git push github v0.1.2
 ```
 
 ## 使用方式
@@ -129,6 +142,9 @@ modelUsage --json
 
 # 重建统计缓存
 modelUsage --refresh
+
+# 下载并安装最新 release
+modelUsage --update
 ```
 
 ## 示例输出
