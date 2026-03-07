@@ -23,7 +23,7 @@ pub fn build_daily_report(
             });
             day.models.insert(row.model.clone());
             day.usage.add_assign(&row.usage);
-            match compute_cost(&row.model, &row.usage, prices) {
+            match compute_cost(entry.source, &row.model, &row.usage, prices) {
                 Some(cost) => {
                     let current = day.cost_usd.get_or_insert(0.0);
                     *current += cost;

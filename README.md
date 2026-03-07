@@ -107,7 +107,7 @@ Auto-update notes:
 
 Current crate version:
 
-- `0.1.2`
+- `0.1.3`
 
 Versioning rule:
 
@@ -118,8 +118,8 @@ Versioning rule:
 Typical release flow:
 
 ```bash
-git tag v0.1.2
-git push github v0.1.2
+git tag v0.1.3
+git push github v0.1.3
 ```
 
 ## Usage
