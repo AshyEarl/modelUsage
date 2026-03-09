@@ -7,7 +7,6 @@ use std::cmp::Ordering;
 use std::env;
 use std::fs::{self, File};
 use std::io::{self, IsTerminal, Read, Write};
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Command;
 
@@ -245,7 +244,17 @@ fn confirm_update_now() -> Result<bool> {
 }
 
 fn install_release(release: &ReleaseInfo) -> Result<()> {
+    if cfg!(windows) {
+        bail!(
+            "self-update replacement is not supported on Windows yet; download the latest release archive and replace modelUsage.exe manually"
+        );
+    }
+
     let current_exe = env::current_exe().context("failed to resolve current executable path")?;
+    let executable_name = current_exe
+        .file_name()
+        .ok_or_else(|| anyhow!("failed to resolve executable file name"))?
+        .to_owned();
     let target_dir = current_exe
         .parent()
         .ok_or_else(|| anyhow!("failed to resolve executable directory"))?;
@@ -259,14 +268,15 @@ fn install_release(release: &ReleaseInfo) -> Result<()> {
         .with_context(|| format!("failed to create {}", temp_root.display()))?;
 
     let archive_path = temp_root.join(&release.asset_name);
-    let extracted_path = temp_root.join("modelUsage");
+    let extracted_path = temp_root.join(&executable_name);
     print_status_line(&format!("Downloading {}...", release.asset_name));
     download_release_archive(&release.asset_url, &archive_path)?;
     print_status_line("Extracting archive...");
     extract_release_binary(&archive_path, &temp_root)?;
 
     let staging_path = target_dir.join(format!(
-        ".modelUsage.tmp-{}-{}",
+        "{}.tmp-{}-{}",
+        executable_name.to_string_lossy(),
         std::process::id(),
         Utc::now().timestamp_millis()
     ));
@@ -333,12 +343,25 @@ fn copy_binary_to_staging(source: &Path, target: &Path) -> Result<()> {
     if bytes == 0 {
         bail!("downloaded binary is empty");
     }
-    fs::set_permissions(target, fs::Permissions::from_mode(0o755))
-        .with_context(|| format!("failed to chmod {}", target.display()))?;
+    set_executable_permissions(target)?;
     File::open(target)
         .with_context(|| format!("failed to reopen {}", target.display()))?
         .sync_all()
         .with_context(|| format!("failed to fsync {}", target.display()))?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn set_executable_permissions(target: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::set_permissions(target, fs::Permissions::from_mode(0o755))
+        .with_context(|| format!("failed to chmod {}", target.display()))?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn set_executable_permissions(_target: &Path) -> Result<()> {
     Ok(())
 }
 
@@ -368,6 +391,12 @@ fn current_platform_asset() -> Result<PlatformAsset> {
         }),
         ("macos", "aarch64") => Ok(PlatformAsset {
             archive_name: "modelUsage-macos-aarch64.tar.gz",
+        }),
+        ("windows", "x86_64") => Ok(PlatformAsset {
+            archive_name: "modelUsage-windows-x86_64.tar.gz",
+        }),
+        ("windows", "aarch64") => Ok(PlatformAsset {
+            archive_name: "modelUsage-windows-aarch64.tar.gz",
         }),
         (os, arch) => bail!("self-update is not supported on {os}/{arch}"),
     }
@@ -597,6 +626,12 @@ mod tests {
             }),
             ("macos", "aarch64") => Some(PlatformAsset {
                 archive_name: "modelUsage-macos-aarch64.tar.gz",
+            }),
+            ("windows", "x86_64") => Some(PlatformAsset {
+                archive_name: "modelUsage-windows-x86_64.tar.gz",
+            }),
+            ("windows", "aarch64") => Some(PlatformAsset {
+                archive_name: "modelUsage-windows-aarch64.tar.gz",
             }),
             _ => None,
         };

@@ -15,12 +15,23 @@ jobs:
           - runner: ubuntu-latest
             rust_target: x86_64-unknown-linux-gnu
             asset_name: modelUsage-linux-x86_64.tar.gz
+            binary_name: modelUsage
           - runner: ubuntu-24.04-arm
             rust_target: aarch64-unknown-linux-gnu
             asset_name: modelUsage-linux-aarch64.tar.gz
+            binary_name: modelUsage
           - runner: macos-15
             rust_target: aarch64-apple-darwin
             asset_name: modelUsage-macos-aarch64.tar.gz
+            binary_name: modelUsage
+          - runner: windows-latest
+            rust_target: x86_64-pc-windows-msvc
+            asset_name: modelUsage-windows-x86_64.tar.gz
+            binary_name: modelUsage.exe
+          - runner: windows-11-arm
+            rust_target: aarch64-pc-windows-msvc
+            asset_name: modelUsage-windows-aarch64.tar.gz
+            binary_name: modelUsage.exe
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -37,12 +48,14 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build release binary
+        shell: bash
         run: cargo build --release --target ${{ matrix.rust_target }}
 
       - name: Prepare release archive
+        shell: bash
         run: |
           mkdir -p dist
-          cp target/${{ matrix.rust_target }}/release/modelUsage dist/modelUsage
+          cp target/${{ matrix.rust_target }}/release/${{ matrix.binary_name }} dist/${{ matrix.binary_name }}
           cp README.md dist/README.md
           cp README-zh.md dist/README-zh.md
           cp PRICING.md dist/PRICING.md

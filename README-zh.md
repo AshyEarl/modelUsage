@@ -45,11 +45,13 @@
 - Linux x86_64
 - Linux arm64
 - macOS arm64
+- Windows x86_64
+- Windows arm64
 
 说明：
 
 - 假设 Claude / Codex 在这些平台上的 home 目录布局保持一致
-- release workflow 会为这三个目标构建并上传预编译压缩包
+- release workflow 会为这五个目标构建并上传预编译压缩包
 - 文档中的 shell 安装示例可用于 Linux 和现代 macOS 终端
 
 ## 安装
@@ -82,6 +84,8 @@ modelUsage --update
    - `modelUsage-linux-x86_64.tar.gz`
    - `modelUsage-linux-aarch64.tar.gz`
    - `modelUsage-macos-aarch64.tar.gz`
+   - `modelUsage-windows-x86_64.tar.gz`
+   - `modelUsage-windows-aarch64.tar.gz`
 3. 解压
 4. 把 `modelUsage` 放到你的 `PATH` 目录里，比如 `~/.local/bin`
 
@@ -100,26 +104,27 @@ install -m 755 modelUsage ~/.local/bin/modelUsage
 - 更新检查默认 24 小时最多执行一次
 - `--json` 和非 TTY 场景不会联网检查更新
 - `modelUsage --update` 会下载最新 GitHub Release，并原地替换当前二进制
-- 当前更新流程使用 Rust 内置 HTTP 请求，并会为 Linux x86_64、Linux arm64、macOS arm64 自动选择匹配的压缩包
+- 当前更新流程使用 Rust 内置 HTTP 请求，并会为 Linux x86_64、Linux arm64、macOS arm64、Windows x86_64、Windows arm64 自动选择匹配的压缩包
 - 当前更新流程依赖系统可用的 `tar`
+- Windows 当前仍需下载后手动替换，暂未实现进程内原地替换
 
 ## 版本说明
 
 当前 crate 版本：
 
-- `0.1.4`
+- `0.1.5`
 
 版本规则：
 
 - `Cargo.toml` 是版本号的唯一来源
 - Git tag 使用 `vX.Y.Z` 格式
-- 当推送 `v*` tag 时，release workflow 会自动构建并上传 Linux x86_64、Linux arm64、macOS arm64 二进制
+- 当推送 `v*` tag 时，release workflow 会自动构建并上传 Linux x86_64、Linux arm64、macOS arm64、Windows x86_64、Windows arm64 二进制
 
 一次典型发版流程：
 
 ```bash
-git tag v0.1.4
-git push github v0.1.4
+git tag v0.1.5
+git push github v0.1.5
 ```
 
 ## 使用方式
@@ -152,7 +157,7 @@ modelUsage --update
 ### Claude-only
 
 ```text
-modelUsage v0.1.4
+modelUsage v0.1.5
 Daily Token Usage Report
 
 ┌────────────┬─────────────────────────────────┬────────┬─────────┬─────────────┬────────────┬──────────────┬────────────┐
@@ -171,7 +176,7 @@ Total: 2 days, 5,590,935 tokens, $3.15
 ### Codex-only
 
 ```text
-modelUsage v0.1.4
+modelUsage v0.1.5
 Daily Token Usage Report
 
 ┌────────────┬───────────────┬────────────┬───────────┬───────────┬─────────────┬──────────────┬────────────┐
