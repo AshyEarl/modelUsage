@@ -45,11 +45,13 @@ Current support target:
 - Linux x86_64
 - Linux arm64
 - macOS arm64
+- Windows x86_64
+- Windows arm64
 
 Notes:
 
 - Claude/Codex home-directory layouts are expected to be the same on these platforms
-- the release workflow builds and uploads prebuilt archives for all three targets
+- the release workflow builds and uploads prebuilt archives for all five targets
 - installation examples remain shell-oriented and should work on Linux and modern macOS terminals
 
 ## Install
@@ -82,6 +84,8 @@ Download a prebuilt binary from GitHub Releases:
    - `modelUsage-linux-x86_64.tar.gz`
    - `modelUsage-linux-aarch64.tar.gz`
    - `modelUsage-macos-aarch64.tar.gz`
+   - `modelUsage-windows-x86_64.tar.gz`
+   - `modelUsage-windows-aarch64.tar.gz`
 3. extract it
 4. move `modelUsage` into a directory on your `PATH`, for example `~/.local/bin`
 
@@ -100,26 +104,27 @@ Auto-update notes:
 - checks are throttled to once every 24 hours
 - `--json` and non-TTY runs never contact GitHub for update checks
 - `modelUsage --update` downloads the latest GitHub release and replaces the current binary in place
-- the updater uses built-in Rust HTTP requests and selects the matching archive for Linux x86_64, Linux arm64, or macOS arm64
+- the updater uses built-in Rust HTTP requests and selects the matching archive for Linux x86_64, Linux arm64, macOS arm64, Windows x86_64, or Windows arm64
 - the updater currently expects `tar` to be available on the host system
+- Windows currently requires manual replacement after download; in-place self-update replacement is not yet implemented
 
 ## Versioning
 
 Current crate version:
 
-- `0.1.4`
+- `0.1.5`
 
 Versioning rule:
 
 - `Cargo.toml` is the source of truth for the crate version
 - Git tags should use the `vX.Y.Z` format
-- the release workflow builds and uploads Linux x86_64, Linux arm64, and macOS arm64 binaries when a `v*` tag is pushed
+- the release workflow builds and uploads Linux x86_64, Linux arm64, macOS arm64, Windows x86_64, and Windows arm64 binaries when a `v*` tag is pushed
 
 Typical release flow:
 
 ```bash
-git tag v0.1.4
-git push github v0.1.4
+git tag v0.1.5
+git push github v0.1.5
 ```
 
 ## Usage
@@ -152,7 +157,7 @@ modelUsage --update
 ### Claude-only
 
 ```text
-modelUsage v0.1.4
+modelUsage v0.1.5
 Daily Token Usage Report
 
 ┌────────────┬─────────────────────────────────┬────────┬─────────┬─────────────┬────────────┬──────────────┬────────────┐
@@ -171,7 +176,7 @@ Total: 2 days, 5,590,935 tokens, $3.15
 ### Codex-only
 
 ```text
-modelUsage v0.1.4
+modelUsage v0.1.5
 Daily Token Usage Report
 
 ┌────────────┬───────────────┬────────────┬───────────┬───────────┬─────────────┬──────────────┬────────────┐
