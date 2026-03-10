@@ -70,7 +70,7 @@ fn scan_source(
         };
         let key = path.to_string_lossy().to_string();
         let existing = cache.files.get(&key);
-        let entry = if !file_changed(existing, &metadata) {
+        let entry = if !file_changed(source, existing, &metadata) {
             existing.cloned().unwrap()
         } else {
             // Reparse only changed files so we do not rescan the full history on every run.

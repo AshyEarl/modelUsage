@@ -22,9 +22,9 @@ pub fn parse_file(path: &Path) -> Result<Vec<FileDailyRow>> {
             continue;
         };
         // A single Claude response can appear multiple times as intermediate states in JSONL.
-        // Deduplicate by message.id/uuid and keep the first usage entry to match ccusage behavior.
+        // Keep the last usage entry for each message.id/uuid to capture the final streamed totals.
         // Claude 的一条最终响应在 JSONL 里可能出现多次中间态记录。
-        // 这里按 message.id/uuid 去重，并保留第一次出现的 usage，行为与 ccusage 对齐。
+        // 这里按 message.id/uuid 去重，并保留最后一次 usage，确保拿到流式输出的最终计数。
         let message_key = value
             .get("message")
             .and_then(|msg| msg.get("id"))
@@ -39,7 +39,7 @@ pub fn parse_file(path: &Path) -> Result<Vec<FileDailyRow>> {
         let Some(message_key) = message_key else {
             continue;
         };
-        unique_messages.entry(message_key).or_insert(event);
+        unique_messages.insert(message_key, event);
     }
 
     for event in unique_messages.into_values() {
@@ -144,7 +144,11 @@ pub fn normalize_claude_model(raw: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_claude_model;
+    use super::{normalize_claude_model, parse_file};
+    use serde_json::{Value, json};
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn strips_date_suffix() {
@@ -153,5 +157,137 @@ mod tests {
             "sonnet-4-5"
         );
         assert_eq!(normalize_claude_model("claude-opus-4-6"), "opus-4-6");
+    }
+
+    #[test]
+    fn keeps_last_usage_for_duplicate_message_id() {
+        let path = write_temp_jsonl(&[
+            event(
+                "2026-03-01T00:00:00Z",
+                "msg-1",
+                "claude-sonnet-4-6",
+                1,
+                8,
+                100,
+                10,
+                119,
+            ),
+            event(
+                "2026-03-01T00:00:01Z",
+                "msg-1",
+                "claude-sonnet-4-6",
+                1,
+                8,
+                100,
+                10,
+                119,
+            ),
+            event(
+                "2026-03-01T00:00:02Z",
+                "msg-1",
+                "claude-sonnet-4-6",
+                1,
+                20962,
+                100,
+                10,
+                21073,
+            ),
+        ]);
+
+        let rows = parse_file(&path).unwrap();
+        let _ = fs::remove_file(&path);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].usage.input, 1);
+        assert_eq!(rows[0].usage.output, 20962);
+        assert_eq!(rows[0].usage.cache_read, 100);
+        assert_eq!(rows[0].usage.cache_write_5m, 10);
+        assert_eq!(rows[0].usage.total, 21073);
+    }
+
+    #[test]
+    fn aggregates_distinct_messages_once_each() {
+        let path = write_temp_jsonl(&[
+            event(
+                "2026-03-01T00:00:00Z",
+                "msg-1",
+                "claude-sonnet-4-6",
+                1,
+                8,
+                100,
+                10,
+                119,
+            ),
+            event(
+                "2026-03-01T00:00:02Z",
+                "msg-1",
+                "claude-sonnet-4-6",
+                1,
+                20,
+                100,
+                10,
+                131,
+            ),
+            event(
+                "2026-03-01T00:00:03Z",
+                "msg-2",
+                "claude-sonnet-4-6",
+                2,
+                30,
+                50,
+                5,
+                87,
+            ),
+        ]);
+
+        let rows = parse_file(&path).unwrap();
+        let _ = fs::remove_file(&path);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].usage.input, 3);
+        assert_eq!(rows[0].usage.output, 50);
+        assert_eq!(rows[0].usage.cache_read, 150);
+        assert_eq!(rows[0].usage.cache_write_5m, 15);
+        assert_eq!(rows[0].usage.total, 218);
+    }
+
+    fn write_temp_jsonl(lines: &[Value]) -> PathBuf {
+        let mut path = std::env::temp_dir();
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        path.push(format!("modelusage-claude-test-{nanos}.jsonl"));
+        let mut payload = String::new();
+        for line in lines {
+            payload.push_str(&line.to_string());
+            payload.push('\n');
+        }
+        fs::write(&path, payload).unwrap();
+        path
+    }
+
+    fn event(
+        ts: &str,
+        message_id: &str,
+        model: &str,
+        input: u64,
+        output: u64,
+        cache_read: u64,
+        cache_creation: u64,
+        total: u64,
+    ) -> Value {
+        json!({
+            "timestamp": ts,
+            "message": {
+                "id": message_id,
+                "model": model,
+                "usage": {
+                    "input_tokens": input,
+                    "output_tokens": output,
+                    "cache_read_input_tokens": cache_read,
+                    "cache_creation_input_tokens": cache_creation,
+                    "total_tokens": total
+                }
+            }
+        })
     }
 }

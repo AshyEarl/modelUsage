@@ -67,6 +67,8 @@ pub struct FileDailyRow {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileCacheEntry {
     pub source: SourceKind,
+    #[serde(default)]
+    pub parser_version: u32,
     pub path: PathBuf,
     pub size: u64,
     pub mtime_ms: u128,
@@ -81,10 +83,12 @@ pub struct StatsCache {
     pub files: BTreeMap<String, FileCacheEntry>,
 }
 
+pub const STATS_CACHE_VERSION: u32 = 2;
+
 impl Default for StatsCache {
     fn default() -> Self {
         Self {
-            version: 1,
+            version: STATS_CACHE_VERSION,
             files: BTreeMap::new(),
         }
     }
