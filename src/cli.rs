@@ -1,3 +1,4 @@
+use crate::model::ReportGrouping;
 use clap::Parser;
 
 #[derive(Debug, Clone, Parser)]
@@ -27,6 +28,26 @@ pub struct Cli {
     #[arg(long, help = "Output JSON instead of a table")]
     pub json: bool,
 
+    /// Group report rows by date.
+    /// 按日期分组输出报表行。
+    #[arg(long, help = "Group rows by date")]
+    pub daily: bool,
+
+    /// Group report rows by project (cwd).
+    /// 按项目（cwd）分组输出报表行。
+    #[arg(long, help = "Group rows by project (cwd)")]
+    pub project: bool,
+
+    /// Aggregation timezone, e.g. Asia/Shanghai, UTC+8, +08:00, UTC.
+    /// 聚合时区，例如 Asia/Shanghai、UTC+8、+08:00、UTC。
+    #[arg(long, help = "Aggregation timezone (IANA or UTC offset)")]
+    pub tz: Option<String>,
+
+    /// Backward-compatible alias; use --project.
+    /// 向后兼容别名；请改用 --project。
+    #[arg(long, hide = true)]
+    pub by_project: bool,
+
     /// Only include Claude Code local logs.
     /// 只统计 Claude Code 本地日志。
     #[arg(long, help = "Only include Claude logs")]
@@ -36,4 +57,39 @@ pub struct Cli {
     /// 只统计 Codex 本地日志。
     #[arg(long, help = "Only include Codex logs")]
     pub codex: bool,
+
+    #[arg(skip = ReportGrouping::Daily)]
+    pub grouping: ReportGrouping,
+}
+
+impl Cli {
+    pub fn finalize_grouping(&mut self, argv: &[String]) {
+        if self.by_project {
+            self.project = true;
+        }
+        self.grouping = resolve_grouping(self.daily, self.project, argv);
+    }
+}
+
+fn resolve_grouping(daily: bool, project: bool, argv: &[String]) -> ReportGrouping {
+    match (daily, project) {
+        (false, false) => ReportGrouping::Daily,
+        (true, false) => ReportGrouping::Daily,
+        (false, true) => ReportGrouping::Project,
+        (true, true) => {
+            let daily_idx = first_flag_index(argv, "--daily").unwrap_or(usize::MAX);
+            let project_idx = first_flag_index(argv, "--project")
+                .or_else(|| first_flag_index(argv, "--by-project"))
+                .unwrap_or(usize::MAX);
+            if project_idx < daily_idx {
+                ReportGrouping::ProjectDaily
+            } else {
+                ReportGrouping::DailyProject
+            }
+        }
+    }
+}
+
+fn first_flag_index(argv: &[String], flag: &str) -> Option<usize> {
+    argv.iter().position(|arg| arg == flag)
 }

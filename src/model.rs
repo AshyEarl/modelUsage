@@ -25,6 +25,15 @@ pub struct UsageTotals {
     pub total: u64,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ReportGrouping {
+    Daily,
+    Project,
+    DailyProject,
+    ProjectDaily,
+}
+
 impl UsageTotals {
     pub fn add_assign(&mut self, other: &Self) {
         self.input += other.input;
@@ -47,6 +56,7 @@ impl UsageTotals {
 pub struct UsageEvent {
     pub source: SourceKind,
     pub timestamp: DateTime<Utc>,
+    pub project: String,
     pub raw_model: String,
     pub normalized_model: String,
     pub usage: UsageTotals,
@@ -57,6 +67,8 @@ pub struct UsageEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileDailyRow {
     pub date: NaiveDate,
+    #[serde(default = "default_project_name")]
+    pub project: String,
     pub model: String,
     pub usage: UsageTotals,
 }
@@ -80,18 +92,35 @@ pub struct FileCacheEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StatsCache {
     pub version: u32,
+    #[serde(default = "default_aggregation_tz_key")]
+    pub aggregation_tz_key: String,
     pub files: BTreeMap<String, FileCacheEntry>,
 }
 
-pub const STATS_CACHE_VERSION: u32 = 2;
+pub const STATS_CACHE_VERSION: u32 = 3;
 
 impl Default for StatsCache {
     fn default() -> Self {
+        Self::empty_for_tz(default_aggregation_tz_key())
+    }
+}
+
+impl StatsCache {
+    pub fn empty_for_tz(aggregation_tz_key: String) -> Self {
         Self {
             version: STATS_CACHE_VERSION,
+            aggregation_tz_key,
             files: BTreeMap::new(),
         }
     }
+}
+
+pub fn default_aggregation_tz_key() -> String {
+    "local".to_string()
+}
+
+pub fn default_project_name() -> String {
+    "<unknown-project>".to_string()
 }
 
 /// Per-model pricing configuration expressed in USD per million tokens.
@@ -118,7 +147,10 @@ pub struct PricingCache {
 /// 对外输出的日报行。
 #[derive(Debug, Clone, Serialize)]
 pub struct DailyRow {
-    pub date: NaiveDate,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date: Option<NaiveDate>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
     pub models: BTreeSet<String>,
     pub usage: UsageTotals,
     pub cost_usd: Option<f64>,
@@ -140,6 +172,7 @@ pub struct ReportTotals {
 /// 默认输出的数据模型，既可渲染表格，也可直接序列化成 JSON。
 #[derive(Debug, Clone, Serialize)]
 pub struct DailyReport {
+    pub grouping: ReportGrouping,
     pub rows: Vec<DailyRow>,
     pub totals: ReportTotals,
 }

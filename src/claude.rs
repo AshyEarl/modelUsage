@@ -1,4 +1,5 @@
 use crate::model::{FileDailyRow, UsageEvent, UsageTotals};
+use crate::timezone::AggregationTz;
 use anyhow::{Context, Result};
 use chrono::{DateTime, NaiveDate, Utc};
 use serde_json::Value;
@@ -7,11 +8,11 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
-pub fn parse_file(path: &Path) -> Result<Vec<FileDailyRow>> {
+pub fn parse_file(path: &Path, aggregation_tz: &AggregationTz) -> Result<Vec<FileDailyRow>> {
     let file = File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
     let reader = BufReader::new(file);
     let mut unique_messages: BTreeMap<String, UsageEvent> = BTreeMap::new();
-    let mut daily: BTreeMap<(NaiveDate, String), UsageTotals> = BTreeMap::new();
+    let mut daily: BTreeMap<(NaiveDate, String, String), UsageTotals> = BTreeMap::new();
 
     for line in reader.lines() {
         let line = line?;
@@ -43,13 +44,19 @@ pub fn parse_file(path: &Path) -> Result<Vec<FileDailyRow>> {
     }
 
     for event in unique_messages.into_values() {
-        let key = (event.timestamp.date_naive(), event.normalized_model.clone());
+        let day = aggregation_tz.date_for(event.timestamp);
+        let key = (day, event.project.clone(), event.normalized_model.clone());
         daily.entry(key).or_default().add_assign(&event.usage);
     }
 
     Ok(daily
         .into_iter()
-        .map(|((date, model), usage)| FileDailyRow { date, model, usage })
+        .map(|((date, project, model), usage)| FileDailyRow {
+            date,
+            project,
+            model,
+            usage,
+        })
         .collect())
 }
 
@@ -102,6 +109,11 @@ fn parse_event(value: &Value) -> Option<UsageEvent> {
     Some(UsageEvent {
         source: crate::model::SourceKind::Claude,
         timestamp,
+        project: value
+            .get("cwd")
+            .and_then(Value::as_str)
+            .unwrap_or("<unknown-project>")
+            .to_string(),
         raw_model,
         normalized_model,
         usage: UsageTotals {
@@ -145,6 +157,7 @@ pub fn normalize_claude_model(raw: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{normalize_claude_model, parse_file};
+    use crate::timezone::AggregationTz;
     use serde_json::{Value, json};
     use std::fs;
     use std::path::PathBuf;
@@ -194,9 +207,10 @@ mod tests {
             ),
         ]);
 
-        let rows = parse_file(&path).unwrap();
+        let rows = parse_file(&path, &AggregationTz::parse(Some("UTC")).unwrap()).unwrap();
         let _ = fs::remove_file(&path);
         assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].project, "<unknown-project>");
         assert_eq!(rows[0].usage.input, 1);
         assert_eq!(rows[0].usage.output, 20962);
         assert_eq!(rows[0].usage.cache_read, 100);
@@ -239,14 +253,40 @@ mod tests {
             ),
         ]);
 
-        let rows = parse_file(&path).unwrap();
+        let rows = parse_file(&path, &AggregationTz::parse(Some("UTC")).unwrap()).unwrap();
         let _ = fs::remove_file(&path);
         assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].project, "<unknown-project>");
         assert_eq!(rows[0].usage.input, 3);
         assert_eq!(rows[0].usage.output, 50);
         assert_eq!(rows[0].usage.cache_read, 150);
         assert_eq!(rows[0].usage.cache_write_5m, 15);
         assert_eq!(rows[0].usage.total, 218);
+    }
+
+    #[test]
+    fn groups_by_cwd_and_target_timezone_day() {
+        let path = write_temp_jsonl(&[json!({
+            "timestamp": "2026-03-01T20:30:00Z",
+            "cwd": "/repo/demo",
+            "message": {
+                "id": "msg-1",
+                "model": "claude-sonnet-4-6",
+                "usage": {
+                    "input_tokens": 1,
+                    "output_tokens": 2,
+                    "cache_read_input_tokens": 3,
+                    "cache_creation_input_tokens": 4,
+                    "total_tokens": 10
+                }
+            }
+        })]);
+
+        let rows = parse_file(&path, &AggregationTz::parse(Some("UTC+8")).unwrap()).unwrap();
+        let _ = fs::remove_file(&path);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].project, "/repo/demo");
+        assert_eq!(rows[0].date.to_string(), "2026-03-02");
     }
 
     fn write_temp_jsonl(lines: &[Value]) -> PathBuf {

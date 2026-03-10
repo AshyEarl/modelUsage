@@ -80,11 +80,22 @@ install -m 755 modelUsage ~/.local/bin/modelUsage
 modelUsage                 # latest 30 days, Claude + Codex
 modelUsage --claude        # Claude only
 modelUsage --codex         # Codex only
+modelUsage --project       # project summary (grouped by cwd only)
+modelUsage --daily --project    # date -> project
+modelUsage --project --daily    # project -> date
 modelUsage --all           # full history
+modelUsage --tz Asia/Shanghai   # aggregate by IANA timezone
+modelUsage --tz UTC+8           # aggregate by UTC offset shortcut
 modelUsage --json          # JSON output
 modelUsage --refresh       # rebuild stats cache
 modelUsage --update        # download and replace current binary
 ```
+
+Timezone accepts:
+
+- IANA names, e.g. `Asia/Shanghai`
+- offset shortcuts, e.g. `UTC+8`, `utc+8`, `+08:00`, `-3:30`
+- `local` (default)
 
 ## Update behavior
 

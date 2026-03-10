@@ -7,6 +7,7 @@ mod model;
 mod pricing;
 mod report;
 mod table;
+mod timezone;
 mod update;
 
 use anyhow::Result;
@@ -23,7 +24,9 @@ fn main() {
 fn real_main() -> Result<()> {
     // Keep the CLI minimal: parse flags here and delegate the real work to the app layer.
     // CLI 本身保持极简，只负责解析参数并把执行委托给 app 层。
-    let cli = Cli::parse();
+    let raw_args: Vec<String> = std::env::args().collect();
+    let mut cli = Cli::parse();
+    cli.finalize_grouping(&raw_args);
     if cli.update {
         return update::run_manual_update();
     }

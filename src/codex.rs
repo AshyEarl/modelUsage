@@ -1,4 +1,5 @@
 use crate::model::{FileDailyRow, UsageTotals};
+use crate::timezone::AggregationTz;
 use anyhow::{Context, Result};
 use chrono::{DateTime, NaiveDate, Utc};
 use serde_json::Value;
@@ -7,12 +8,13 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
-pub fn parse_file(path: &Path) -> Result<Vec<FileDailyRow>> {
+pub fn parse_file(path: &Path, aggregation_tz: &AggregationTz) -> Result<Vec<FileDailyRow>> {
     let file = File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
     let reader = BufReader::new(file);
     let mut current_model = String::new();
+    let mut project = "<unknown-project>".to_string();
     let mut previous_total: Option<RawUsage> = None;
-    let mut daily: BTreeMap<(NaiveDate, String), UsageTotals> = BTreeMap::new();
+    let mut daily: BTreeMap<(NaiveDate, String, String), UsageTotals> = BTreeMap::new();
 
     for line in reader.lines() {
         let line = line?;
@@ -21,6 +23,15 @@ pub fn parse_file(path: &Path) -> Result<Vec<FileDailyRow>> {
         };
 
         match value.get("type").and_then(Value::as_str) {
+            Some("session_meta") => {
+                if let Some(cwd) = value
+                    .get("payload")
+                    .and_then(|v| v.get("cwd"))
+                    .and_then(Value::as_str)
+                {
+                    project = cwd.to_string();
+                }
+            }
             Some("turn_context") => {
                 if let Some(model) = value
                     .get("payload")
@@ -73,7 +84,8 @@ pub fn parse_file(path: &Path) -> Result<Vec<FileDailyRow>> {
                 } else {
                     current_model.clone()
                 };
-                let key = (timestamp.date_naive(), model);
+                let day = aggregation_tz.date_for(timestamp);
+                let key = (day, project.clone(), model);
                 daily
                     .entry(key)
                     .or_default()
@@ -85,7 +97,12 @@ pub fn parse_file(path: &Path) -> Result<Vec<FileDailyRow>> {
 
     Ok(daily
         .into_iter()
-        .map(|((date, model), usage)| FileDailyRow { date, model, usage })
+        .map(|((date, project, model), usage)| FileDailyRow {
+            date,
+            project,
+            model,
+            usage,
+        })
         .collect())
 }
 
@@ -209,6 +226,7 @@ pub fn normalize_codex_model(raw: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{normalize_codex_model, parse_file};
+    use crate::timezone::AggregationTz;
     use serde_json::{Value, json};
     use std::fs;
     use std::path::PathBuf;
@@ -269,9 +287,10 @@ mod tests {
             ),
         ]);
 
-        let rows = parse_file(&path).unwrap();
+        let rows = parse_file(&path, &AggregationTz::parse(Some("UTC")).unwrap()).unwrap();
         let _ = fs::remove_file(&path);
         assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].project, "<unknown-project>");
         assert_eq!(rows[0].usage.input, 160);
         assert_eq!(rows[0].usage.cache_read, 120);
         assert_eq!(rows[0].usage.output, 40);
@@ -311,9 +330,10 @@ mod tests {
             ),
         ]);
 
-        let rows = parse_file(&path).unwrap();
+        let rows = parse_file(&path, &AggregationTz::parse(Some("UTC")).unwrap()).unwrap();
         let _ = fs::remove_file(&path);
         assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].project, "<unknown-project>");
         assert_eq!(rows[0].usage.input, 150);
         assert_eq!(rows[0].usage.cache_read, 110);
         assert_eq!(rows[0].usage.output, 40);
@@ -342,13 +362,29 @@ mod tests {
             }),
         ]);
 
-        let rows = parse_file(&path).unwrap();
+        let rows = parse_file(&path, &AggregationTz::parse(Some("UTC")).unwrap()).unwrap();
         let _ = fs::remove_file(&path);
         assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].project, "<unknown-project>");
         assert_eq!(rows[0].usage.input, 42);
         assert_eq!(rows[0].usage.cache_read, 12);
         assert_eq!(rows[0].usage.output, 8);
         assert_eq!(rows[0].usage.total, 50);
+    }
+
+    #[test]
+    fn groups_by_session_cwd_and_target_timezone_day() {
+        let path = write_temp_jsonl(&[
+            session_meta("/repo/codex"),
+            turn_context("gpt-5-codex"),
+            token_count_event("2026-03-01T20:30:00Z", 10, 4, 6, 0, 10, 10, 4, 6, 0, 10),
+        ]);
+
+        let rows = parse_file(&path, &AggregationTz::parse(Some("UTC+8")).unwrap()).unwrap();
+        let _ = fs::remove_file(&path);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].project, "/repo/codex");
+        assert_eq!(rows[0].date.to_string(), "2026-03-02");
     }
 
     fn write_temp_jsonl(lines: &[Value]) -> PathBuf {
@@ -372,6 +408,14 @@ mod tests {
             "timestamp": "2026-03-01T00:00:00Z",
             "type": "turn_context",
             "payload": { "model": model }
+        })
+    }
+
+    fn session_meta(cwd: &str) -> Value {
+        json!({
+            "timestamp": "2026-03-01T00:00:00Z",
+            "type": "session_meta",
+            "payload": { "cwd": cwd }
         })
     }
 

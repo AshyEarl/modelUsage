@@ -80,11 +80,22 @@ install -m 755 modelUsage ~/.local/bin/modelUsage
 modelUsage                 # 最近 30 天，Claude + Codex
 modelUsage --claude        # 只看 Claude
 modelUsage --codex         # 只看 Codex
+modelUsage --project       # 仅按项目（cwd）汇总
+modelUsage --daily --project    # 日期 -> 项目
+modelUsage --project --daily    # 项目 -> 日期
 modelUsage --all           # 全量历史
+modelUsage --tz Asia/Shanghai   # 按 IANA 时区聚合
+modelUsage --tz UTC+8           # 按 UTC 偏移快捷写法聚合
 modelUsage --json          # JSON 输出
 modelUsage --refresh       # 重建统计缓存
 modelUsage --update        # 下载并替换当前二进制
 ```
+
+`--tz` 支持：
+
+- IANA 名称，例如 `Asia/Shanghai`
+- 偏移快捷写法，例如 `UTC+8`、`utc+8`、`+08:00`、`-3:30`
+- `local`（默认）
 
 ## 更新行为
 

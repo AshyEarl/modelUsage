@@ -1,11 +1,12 @@
 [package]
 name = "modelUsage"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2024"
 
 [dependencies]
 anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
 clap = { version = "4.5", features = ["derive"] }
 comfy-table = "7.1"
 dirs = "6.0"
