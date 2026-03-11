@@ -5,6 +5,7 @@ mod cli;
 mod codex;
 mod model;
 mod pricing;
+mod profile;
 mod report;
 mod table;
 mod timezone;

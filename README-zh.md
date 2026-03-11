@@ -7,7 +7,7 @@
 ### `modelUsage --claude`
 
 ```text
-modelUsage v0.1.5
+modelUsage v0.1.7
 Daily Token Usage Report
 
 ┌────────────┬─────────────────────────────────┬────────┬─────────┬─────────────┬────────────┬──────────────┬────────────┐
@@ -26,7 +26,7 @@ Total: 2 days, 5,590,935 tokens, $3.15
 ### `modelUsage --codex`
 
 ```text
-modelUsage v0.1.5
+modelUsage v0.1.7
 Daily Token Usage Report
 
 ┌────────────┬───────────────┬────────────┬───────────┬───────────┬─────────────┬──────────────┬────────────┐
@@ -96,6 +96,7 @@ modelUsage --update        # 下载并替换当前二进制
 - IANA 名称，例如 `Asia/Shanghai`
 - 偏移快捷写法，例如 `UTC+8`、`utc+8`、`+08:00`、`-3:30`
 - `local`（默认）
+- Codex 数据源会同时包含 `~/.codex/sessions` 与 `~/.codex/archived_sessions`（目录存在时）。
 
 ## 更新行为
 
@@ -103,6 +104,7 @@ modelUsage --update        # 下载并替换当前二进制
 - 更新检查默认 24 小时最多一次。
 - `--json` 和非 TTY 场景不会执行联网检查。
 - Windows 上 `--update` 当前仍需下载后手动替换二进制。
+- 当报表包含 Claude 数据时，会输出 warning：上游本地日志的 `input/output` 可能低估。
 
 ## 平台支持
 
@@ -121,6 +123,6 @@ modelUsage --update        # 下载并替换当前二进制
 
 ## 版本说明
 
-- 当前版本：`0.1.5`
+- 当前版本：`0.1.7`
 - 版本号来源：`Cargo.toml`
 - Tag 格式：`vX.Y.Z`

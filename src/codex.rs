@@ -1,98 +1,134 @@
 use crate::model::{FileDailyRow, UsageTotals};
+use crate::profile;
 use crate::timezone::AggregationTz;
 use anyhow::{Context, Result};
 use chrono::{DateTime, NaiveDate, Utc};
-use serde_json::Value;
+use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
+use std::time::Instant;
 
 pub fn parse_file(path: &Path, aggregation_tz: &AggregationTz) -> Result<Vec<FileDailyRow>> {
+    let profile_enabled = profile::enabled();
+    let started = Instant::now();
     let file = File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
-    let reader = BufReader::new(file);
+    let mut reader = BufReader::new(file);
+    let mut line = String::new();
     let mut current_model = String::new();
     let mut project = "<unknown-project>".to_string();
     let mut previous_total: Option<RawUsage> = None;
     let mut daily: BTreeMap<(NaiveDate, String, String), UsageTotals> = BTreeMap::new();
-
-    for line in reader.lines() {
-        let line = line?;
-        let Ok(value) = serde_json::from_str::<Value>(&line) else {
-            continue;
-        };
-
-        match value.get("type").and_then(Value::as_str) {
-            Some("session_meta") => {
-                if let Some(cwd) = value
-                    .get("payload")
-                    .and_then(|v| v.get("cwd"))
-                    .and_then(Value::as_str)
-                {
-                    project = cwd.to_string();
-                }
-            }
-            Some("turn_context") => {
-                if let Some(model) = value
-                    .get("payload")
-                    .and_then(|v| v.get("model"))
-                    .and_then(Value::as_str)
-                {
-                    current_model = normalize_codex_model(model);
-                }
-            }
-            Some("event_msg") => {
-                let timestamp = match value
-                    .get("timestamp")
-                    .and_then(Value::as_str)
-                    .and_then(parse_timestamp)
-                {
-                    Some(ts) => ts,
-                    None => continue,
-                };
-                let payload = match value.get("payload") {
-                    Some(payload)
-                        if payload.get("type").and_then(Value::as_str) == Some("token_count") =>
-                    {
-                        payload
-                    }
-                    _ => continue,
-                };
-                let info = match payload.get("info") {
-                    Some(info) => info,
-                    None => continue,
-                };
-                let last_usage = info.get("last_token_usage").and_then(parse_raw_usage);
-                let total_usage = info.get("total_token_usage").and_then(parse_raw_usage);
-                // Prefer cumulative-delta when total_token_usage exists to avoid duplicate snapshot inflation.
-                // 优先用 total_token_usage 做累计差分，避免重复快照（例如 rate-limit 刷新）被重复累计。
-                let Some(raw_usage) = choose_raw_usage(
-                    last_usage.as_ref(),
-                    total_usage.as_ref(),
-                    previous_total.as_ref(),
-                ) else {
-                    continue;
-                };
-                if let Some(total) = total_usage {
-                    previous_total = Some(total);
-                }
-                if raw_usage.is_zero() {
-                    continue;
-                }
-                let model = if current_model.is_empty() {
-                    "unknown-codex-model".to_string()
-                } else {
-                    current_model.clone()
-                };
-                let day = aggregation_tz.date_for(timestamp);
-                let key = (day, project.clone(), model);
-                daily
-                    .entry(key)
-                    .or_default()
-                    .add_assign(&raw_usage.into_usage_totals());
-            }
-            _ => {}
+    let mut record_no: u64 = 0;
+    let mut parsed_records: u64 = 0;
+    let mut invalid_records: u64 = 0;
+    let mut empty_records: u64 = 0;
+    let mut token_count_events: u64 = 0;
+    let mut emitted_events: u64 = 0;
+    loop {
+        line.clear();
+        let n = reader.read_line(&mut line)?;
+        if n == 0 {
+            break;
         }
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            empty_records += 1;
+            continue;
+        }
+        record_no += 1;
+
+        match serde_json::from_str::<CodexRecord>(trimmed) {
+            Ok(record) => {
+                parsed_records += 1;
+                match record.record_type.as_deref() {
+                    Some("session_meta") => {
+                        if let Some(cwd) = record.payload.and_then(|payload| payload.cwd) {
+                            project = cwd;
+                        }
+                    }
+                    Some("turn_context") => {
+                        if let Some(model) = record.payload.and_then(|payload| payload.model) {
+                            current_model = normalize_codex_model(&model);
+                        }
+                    }
+                    Some("event_msg") => {
+                        let timestamp = match record.timestamp.as_deref().and_then(parse_timestamp)
+                        {
+                            Some(ts) => ts,
+                            None => continue,
+                        };
+                        let payload = match record.payload {
+                            Some(payload)
+                                if payload.payload_type.as_deref() == Some("token_count") =>
+                            {
+                                payload
+                            }
+                            _ => continue,
+                        };
+                        let info = match payload.info {
+                            Some(info) => info,
+                            None => continue,
+                        };
+                        token_count_events += 1;
+                        let last_usage = info.last_token_usage.as_ref().map(parse_raw_usage);
+                        let total_usage = info.total_token_usage.as_ref().map(parse_raw_usage);
+                        // Prefer cumulative-delta when total_token_usage exists to avoid duplicate snapshot inflation.
+                        // 优先用 total_token_usage 做累计差分，避免重复快照（例如 rate-limit 刷新）被重复累计。
+                        let Some(raw_usage) = choose_raw_usage(
+                            last_usage.as_ref(),
+                            total_usage.as_ref(),
+                            previous_total.as_ref(),
+                        ) else {
+                            continue;
+                        };
+                        if let Some(total) = total_usage {
+                            previous_total = Some(total);
+                        }
+                        if raw_usage.is_zero() {
+                            continue;
+                        }
+                        emitted_events += 1;
+                        let model = if current_model.is_empty() {
+                            "unknown-codex-model".to_string()
+                        } else {
+                            current_model.clone()
+                        };
+                        let day = aggregation_tz.date_for(timestamp);
+                        let key = (day, project.clone(), model);
+                        daily
+                            .entry(key)
+                            .or_default()
+                            .add_assign(&raw_usage.into_usage_totals());
+                    }
+                    _ => {}
+                }
+            }
+            Err(err) => {
+                invalid_records += 1;
+                eprintln!(
+                    "\x1b[31mwarning: skipped invalid Codex JSONL record {}:{} ({})\x1b[0m",
+                    path.display(),
+                    record_no,
+                    err
+                );
+            }
+        }
+    }
+
+    if profile_enabled {
+        profile::log(format!(
+            "codex parse file={} parsed={} invalid={} empty={} token_events={} emitted_events={} daily_rows={} elapsed_ms={}",
+            path.display(),
+            parsed_records,
+            invalid_records,
+            empty_records,
+            token_count_events,
+            emitted_events,
+            daily.len(),
+            started.elapsed().as_millis()
+        ));
     }
 
     Ok(daily
@@ -104,6 +140,39 @@ pub fn parse_file(path: &Path, aggregation_tz: &AggregationTz) -> Result<Vec<Fil
             usage,
         })
         .collect())
+}
+
+#[derive(Debug, Deserialize)]
+struct CodexRecord {
+    #[serde(rename = "type")]
+    record_type: Option<String>,
+    timestamp: Option<String>,
+    payload: Option<CodexPayload>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CodexPayload {
+    #[serde(rename = "type")]
+    payload_type: Option<String>,
+    cwd: Option<String>,
+    model: Option<String>,
+    info: Option<CodexInfo>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CodexInfo {
+    last_token_usage: Option<RawUsageWire>,
+    total_token_usage: Option<RawUsageWire>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct RawUsageWire {
+    input_tokens: Option<u64>,
+    cached_input_tokens: Option<u64>,
+    cache_read_input_tokens: Option<u64>,
+    output_tokens: Option<u64>,
+    reasoning_output_tokens: Option<u64>,
+    total_tokens: Option<u64>,
 }
 
 fn choose_raw_usage(
@@ -178,30 +247,17 @@ impl RawUsage {
     }
 }
 
-fn parse_raw_usage(value: &Value) -> Option<RawUsage> {
-    Some(RawUsage {
-        input: value
-            .get("input_tokens")
-            .and_then(Value::as_u64)
-            .unwrap_or(0),
+fn parse_raw_usage(value: &RawUsageWire) -> RawUsage {
+    RawUsage {
+        input: value.input_tokens.unwrap_or(0),
         cached_input: value
-            .get("cached_input_tokens")
-            .or_else(|| value.get("cache_read_input_tokens"))
-            .and_then(Value::as_u64)
+            .cached_input_tokens
+            .or(value.cache_read_input_tokens)
             .unwrap_or(0),
-        output: value
-            .get("output_tokens")
-            .and_then(Value::as_u64)
-            .unwrap_or(0),
-        reasoning: value
-            .get("reasoning_output_tokens")
-            .and_then(Value::as_u64)
-            .unwrap_or(0),
-        total: value
-            .get("total_tokens")
-            .and_then(Value::as_u64)
-            .unwrap_or(0),
-    })
+        output: value.output_tokens.unwrap_or(0),
+        reasoning: value.reasoning_output_tokens.unwrap_or(0),
+        total: value.total_tokens.unwrap_or(0),
+    }
 }
 
 fn parse_timestamp(raw: &str) -> Option<DateTime<Utc>> {

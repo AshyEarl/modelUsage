@@ -138,6 +138,7 @@ pub fn build_report(
             partial_cost: any_partial,
             unpriced_models,
         },
+        warnings: Vec::new(),
     }
 }
 

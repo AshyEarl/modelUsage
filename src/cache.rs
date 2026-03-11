@@ -12,6 +12,39 @@ const UPDATE_FILE_NAME: &str = "update.json";
 const CLAUDE_PARSER_VERSION: u32 = 2;
 const CODEX_PARSER_VERSION: u32 = 2;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StatsCacheLoadState {
+    Hit {
+        cached_files: usize,
+    },
+    MissingFile,
+    VersionMismatch {
+        found_version: u32,
+        expected_version: u32,
+        previous_tz_key: String,
+        previous_files: usize,
+    },
+    TimezoneMismatch {
+        previous_tz_key: String,
+        expected_tz_key: String,
+        previous_files: usize,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct StatsCacheLoadResult {
+    pub cache: StatsCache,
+    pub state: StatsCacheLoadState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileChangeReason {
+    MissingEntry,
+    SizeChanged,
+    MtimeChanged,
+    ParserVersionChanged,
+}
+
 pub fn cache_dir_path() -> Result<PathBuf> {
     // Store cache files under the system cache directory to avoid polluting the repo or home root.
     // 统一放到系统 cache 目录，避免污染项目目录和 home 根目录。
@@ -35,9 +68,10 @@ pub fn update_state_path() -> Result<PathBuf> {
     Ok(cache_dir_path()?.join(UPDATE_FILE_NAME))
 }
 
-pub fn load_stats_cache(expected_tz_key: &str) -> Result<StatsCache> {
-    let cache = load_json(stats_cache_path()?.as_path())?.unwrap_or_default();
-    Ok(normalize_stats_cache(cache, expected_tz_key))
+pub fn load_stats_cache_with_state(expected_tz_key: &str) -> Result<StatsCacheLoadResult> {
+    let cache = load_json(stats_cache_path()?.as_path())?;
+    let (cache, state) = normalize_stats_cache(cache, expected_tz_key);
+    Ok(StatsCacheLoadResult { cache, state })
 }
 
 pub fn save_stats_cache(cache: &StatsCache) -> Result<()> {
@@ -60,23 +94,30 @@ pub fn save_update_state(state: &UpdateState) -> Result<()> {
     save_json(update_state_path()?.as_path(), state)
 }
 
-pub fn file_changed(
+pub fn file_change_reason(
     source: SourceKind,
     entry: Option<&FileCacheEntry>,
     metadata: &fs::Metadata,
-) -> bool {
+) -> Option<FileChangeReason> {
     // This version uses file-level incremental parsing: changed files are fully reparsed, unchanged files reuse cache.
     // 第一版只做文件级增量。文件一旦变了，就整文件重算；没变则直接复用缓存。
     let Some(entry) = entry else {
-        return true;
+        return Some(FileChangeReason::MissingEntry);
     };
     let size = metadata.len();
     let mtime_ms = file_mtime_ms(metadata).unwrap_or_default();
     // Invalidate cache when parser semantics change for this source, even if the file itself is untouched.
     // 即使文件本身没变，只要该 source 的解析语义版本变化，也必须重算这个文件。
-    entry.size != size
-        || entry.mtime_ms != mtime_ms
-        || entry.parser_version != parser_version(source)
+    if entry.size != size {
+        return Some(FileChangeReason::SizeChanged);
+    }
+    if entry.mtime_ms != mtime_ms {
+        return Some(FileChangeReason::MtimeChanged);
+    }
+    if entry.parser_version != parser_version(source) {
+        return Some(FileChangeReason::ParserVersionChanged);
+    }
+    None
 }
 
 pub fn build_file_entry(
@@ -125,21 +166,53 @@ fn file_mtime_ms(metadata: &fs::Metadata) -> Result<u128> {
     Ok(duration.as_millis())
 }
 
-fn normalize_stats_cache(cache: StatsCache, expected_tz_key: &str) -> StatsCache {
-    if cache.version == crate::model::STATS_CACHE_VERSION
-        && cache.aggregation_tz_key == expected_tz_key
-    {
-        cache
-    } else {
-        // Drop stale cache when parser semantics or aggregation timezone changes.
-        // 当解析语义或聚合时区变化时，丢弃旧缓存，避免沿用错误分桶结果。
-        StatsCache::empty_for_tz(expected_tz_key.to_string())
+fn normalize_stats_cache(
+    cache: Option<StatsCache>,
+    expected_tz_key: &str,
+) -> (StatsCache, StatsCacheLoadState) {
+    let Some(cache) = cache else {
+        return (
+            StatsCache::empty_for_tz(expected_tz_key.to_string()),
+            StatsCacheLoadState::MissingFile,
+        );
+    };
+
+    if cache.version != crate::model::STATS_CACHE_VERSION {
+        // Drop stale cache when parser semantics change.
+        // 解析语义版本变更后，直接丢弃旧缓存，避免复用过期统计结果。
+        return (
+            StatsCache::empty_for_tz(expected_tz_key.to_string()),
+            StatsCacheLoadState::VersionMismatch {
+                found_version: cache.version,
+                expected_version: crate::model::STATS_CACHE_VERSION,
+                previous_tz_key: cache.aggregation_tz_key,
+                previous_files: cache.files.len(),
+            },
+        );
     }
+    if cache.aggregation_tz_key != expected_tz_key {
+        // Drop stale cache when aggregation timezone changes because date bucketing changes.
+        // 聚合时区改变会改变分桶日期，需要丢弃旧缓存重建。
+        return (
+            StatsCache::empty_for_tz(expected_tz_key.to_string()),
+            StatsCacheLoadState::TimezoneMismatch {
+                previous_tz_key: cache.aggregation_tz_key,
+                expected_tz_key: expected_tz_key.to_string(),
+                previous_files: cache.files.len(),
+            },
+        );
+    }
+
+    let cached_files = cache.files.len();
+    (cache, StatsCacheLoadState::Hit { cached_files })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{file_changed, normalize_stats_cache, parser_version};
+    use super::{
+        file_change_reason, normalize_stats_cache, parser_version, FileChangeReason,
+        StatsCacheLoadState,
+    };
     use crate::model::{SourceKind, StatsCache};
     use std::collections::BTreeMap;
     use std::fs;
@@ -165,9 +238,18 @@ mod tests {
             aggregation_tz_key: "local".to_string(),
             files,
         };
-        let normalized = normalize_stats_cache(cache, "local");
+        let (normalized, state) = normalize_stats_cache(Some(cache), "local");
         assert_eq!(normalized.version, crate::model::STATS_CACHE_VERSION);
         assert!(normalized.files.is_empty());
+        assert_eq!(
+            state,
+            StatsCacheLoadState::VersionMismatch {
+                found_version: 1,
+                expected_version: crate::model::STATS_CACHE_VERSION,
+                previous_tz_key: "local".to_string(),
+                previous_files: 1,
+            }
+        );
     }
 
     #[test]
@@ -189,9 +271,10 @@ mod tests {
             aggregation_tz_key: "offset:+08:00".to_string(),
             files: files.clone(),
         };
-        let normalized = normalize_stats_cache(cache, "offset:+08:00");
+        let (normalized, state) = normalize_stats_cache(Some(cache), "offset:+08:00");
         assert_eq!(normalized.version, crate::model::STATS_CACHE_VERSION);
         assert_eq!(normalized.files.len(), files.len());
+        assert_eq!(state, StatsCacheLoadState::Hit { cached_files: 1 });
     }
 
     #[test]
@@ -201,9 +284,25 @@ mod tests {
             aggregation_tz_key: "local".to_string(),
             files: BTreeMap::new(),
         };
-        let normalized = normalize_stats_cache(cache, "offset:+08:00");
+        let (normalized, state) = normalize_stats_cache(Some(cache), "offset:+08:00");
         assert_eq!(normalized.aggregation_tz_key, "offset:+08:00");
         assert!(normalized.files.is_empty());
+        assert_eq!(
+            state,
+            StatsCacheLoadState::TimezoneMismatch {
+                previous_tz_key: "local".to_string(),
+                expected_tz_key: "offset:+08:00".to_string(),
+                previous_files: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn reports_missing_stats_file_as_cache_miss() {
+        let (normalized, state) = normalize_stats_cache(None, "local");
+        assert_eq!(normalized.aggregation_tz_key, "local");
+        assert!(normalized.files.is_empty());
+        assert_eq!(state, StatsCacheLoadState::MissingFile);
     }
 
     #[test]
@@ -220,7 +319,10 @@ mod tests {
             daily_rows: vec![],
         };
 
-        assert!(file_changed(SourceKind::Claude, Some(&entry), &metadata));
+        assert_eq!(
+            file_change_reason(SourceKind::Claude, Some(&entry), &metadata),
+            Some(FileChangeReason::ParserVersionChanged)
+        );
         let _ = fs::remove_file(path);
     }
 
@@ -238,7 +340,23 @@ mod tests {
             daily_rows: vec![],
         };
 
-        assert!(!file_changed(SourceKind::Codex, Some(&entry), &metadata));
+        assert_eq!(
+            file_change_reason(SourceKind::Codex, Some(&entry), &metadata),
+            None
+        );
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn file_change_reason_reports_missing_entry() {
+        let path = temp_file_path("missing-entry");
+        fs::write(&path, "data").unwrap();
+        let metadata = fs::metadata(&path).unwrap();
+
+        assert_eq!(
+            file_change_reason(SourceKind::Codex, None, &metadata),
+            Some(FileChangeReason::MissingEntry)
+        );
         let _ = fs::remove_file(path);
     }
 

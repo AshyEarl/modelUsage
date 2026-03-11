@@ -175,6 +175,8 @@ pub struct DailyReport {
     pub grouping: ReportGrouping,
     pub rows: Vec<DailyRow>,
     pub totals: ReportTotals,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 /// On-disk format for the update-check cache.

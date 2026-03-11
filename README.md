@@ -7,7 +7,7 @@
 ### `modelUsage --claude`
 
 ```text
-modelUsage v0.1.5
+modelUsage v0.1.7
 Daily Token Usage Report
 
 ┌────────────┬─────────────────────────────────┬────────┬─────────┬─────────────┬────────────┬──────────────┬────────────┐
@@ -26,7 +26,7 @@ Total: 2 days, 5,590,935 tokens, $3.15
 ### `modelUsage --codex`
 
 ```text
-modelUsage v0.1.5
+modelUsage v0.1.7
 Daily Token Usage Report
 
 ┌────────────┬───────────────┬────────────┬───────────┬───────────┬─────────────┬──────────────┬────────────┐
@@ -96,6 +96,7 @@ Timezone accepts:
 - IANA names, e.g. `Asia/Shanghai`
 - offset shortcuts, e.g. `UTC+8`, `utc+8`, `+08:00`, `-3:30`
 - `local` (default)
+- Codex source roots include both `~/.codex/sessions` and `~/.codex/archived_sessions` when present.
 
 ## Update behavior
 
@@ -103,6 +104,7 @@ Timezone accepts:
 - Checks are throttled to once per 24 hours.
 - `--json` and non-TTY runs skip update checks.
 - On Windows, `--update` currently requires manual binary replacement after download.
+- When Claude data is present, a warning is emitted because upstream local `input/output` usage can be undercounted.
 
 ## Platform support
 
@@ -121,6 +123,6 @@ Timezone accepts:
 
 ## Versioning
 
-- Current version: `0.1.5`
+- Current version: `0.1.7`
 - Source of truth: `Cargo.toml`
 - Tag format: `vX.Y.Z`

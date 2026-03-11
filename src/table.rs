@@ -108,6 +108,11 @@ pub fn render_daily_report(report: &DailyReport, report_label: &str) -> String {
                 .join(", "),
         );
     }
+    for warning in &report.warnings {
+        output.push('\n');
+        output.push_str("warning: ");
+        output.push_str(warning);
+    }
     output
 }
 
