@@ -73,6 +73,17 @@ pub struct FileDailyRow {
     pub usage: UsageTotals,
 }
 
+/// Claude message-level row used for cross-file dedup within a session.
+/// Claude 消息级缓存行，用于同一会话内跨文件去重。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ClaudeMessageRow {
+    pub message_key: String,
+    pub timestamp: DateTime<Utc>,
+    pub project: String,
+    pub model: String,
+    pub usage: UsageTotals,
+}
+
 /// File-level cache entry.
 /// Reuse the previous daily rows when size/mtime are unchanged to avoid full rescans.
 /// 文件级缓存条目。只要 size/mtime 没变，就复用这个文件上次算出的 daily_rows，避免全量重扫。
@@ -85,6 +96,8 @@ pub struct FileCacheEntry {
     pub size: u64,
     pub mtime_ms: u128,
     pub daily_rows: Vec<FileDailyRow>,
+    #[serde(default)]
+    pub claude_message_rows: Vec<ClaudeMessageRow>,
 }
 
 /// On-disk format for the global stats cache.
@@ -97,7 +110,7 @@ pub struct StatsCache {
     pub files: BTreeMap<String, FileCacheEntry>,
 }
 
-pub const STATS_CACHE_VERSION: u32 = 3;
+pub const STATS_CACHE_VERSION: u32 = 4;
 
 impl Default for StatsCache {
     fn default() -> Self {

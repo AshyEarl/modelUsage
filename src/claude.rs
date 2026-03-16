@@ -1,4 +1,4 @@
-use crate::model::{FileDailyRow, UsageEvent, UsageTotals};
+use crate::model::{ClaudeMessageRow, FileDailyRow, UsageEvent, UsageTotals};
 use crate::profile;
 use crate::timezone::AggregationTz;
 use anyhow::{Context, Result};
@@ -10,7 +10,19 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::time::Instant;
 
+pub struct ParsedClaudeFile {
+    pub daily_rows: Vec<FileDailyRow>,
+    pub message_rows: Vec<ClaudeMessageRow>,
+}
+
 pub fn parse_file(path: &Path, aggregation_tz: &AggregationTz) -> Result<Vec<FileDailyRow>> {
+    Ok(parse_file_detailed(path, aggregation_tz)?.daily_rows)
+}
+
+pub fn parse_file_detailed(
+    path: &Path,
+    aggregation_tz: &AggregationTz,
+) -> Result<ParsedClaudeFile> {
     let profile_enabled = profile::enabled();
     let started = Instant::now();
     let file = File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
@@ -64,7 +76,15 @@ pub fn parse_file(path: &Path, aggregation_tz: &AggregationTz) -> Result<Vec<Fil
     }
 
     let unique_message_count = unique_messages.len();
-    for event in unique_messages.into_values() {
+    let mut message_rows = Vec::with_capacity(unique_message_count);
+    for (message_key, event) in unique_messages {
+        message_rows.push(ClaudeMessageRow {
+            message_key,
+            timestamp: event.timestamp,
+            project: event.project.clone(),
+            model: event.normalized_model.clone(),
+            usage: event.usage.clone(),
+        });
         let day = aggregation_tz.date_for(event.timestamp);
         let key = (day, event.project.clone(), event.normalized_model.clone());
         daily.entry(key).or_default().add_assign(&event.usage);
@@ -83,7 +103,7 @@ pub fn parse_file(path: &Path, aggregation_tz: &AggregationTz) -> Result<Vec<Fil
         ));
     }
 
-    Ok(daily
+    let daily_rows = daily
         .into_iter()
         .map(|((date, project, model), usage)| FileDailyRow {
             date,
@@ -91,7 +111,11 @@ pub fn parse_file(path: &Path, aggregation_tz: &AggregationTz) -> Result<Vec<Fil
             model,
             usage,
         })
-        .collect())
+        .collect();
+    Ok(ParsedClaudeFile {
+        daily_rows,
+        message_rows,
+    })
 }
 
 #[derive(Debug, Deserialize)]
@@ -209,7 +233,7 @@ pub fn normalize_claude_model(raw: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_claude_model, parse_file};
+    use super::{normalize_claude_model, parse_file, parse_file_detailed};
     use crate::timezone::AggregationTz;
     use serde_json::{Value, json};
     use std::fs;
@@ -269,6 +293,40 @@ mod tests {
         assert_eq!(rows[0].usage.cache_read, 100);
         assert_eq!(rows[0].usage.cache_write_5m, 10);
         assert_eq!(rows[0].usage.total, 21073);
+    }
+
+    #[test]
+    fn detailed_parse_emits_message_rows_after_file_internal_dedup() {
+        let path = write_temp_jsonl(&[
+            event(
+                "2026-03-01T00:00:00Z",
+                "msg-1",
+                "claude-sonnet-4-6",
+                1,
+                8,
+                100,
+                10,
+                119,
+            ),
+            event(
+                "2026-03-01T00:00:02Z",
+                "msg-1",
+                "claude-sonnet-4-6",
+                1,
+                20,
+                100,
+                10,
+                131,
+            ),
+        ]);
+
+        let parsed =
+            parse_file_detailed(&path, &AggregationTz::parse(Some("UTC")).unwrap()).unwrap();
+        let _ = fs::remove_file(&path);
+        assert_eq!(parsed.message_rows.len(), 1);
+        assert_eq!(parsed.message_rows[0].message_key, "msg-1");
+        assert_eq!(parsed.message_rows[0].usage.output, 20);
+        assert_eq!(parsed.message_rows[0].usage.total, 131);
     }
 
     #[test]
@@ -383,5 +441,4 @@ mod tests {
             }
         })
     }
-
 }

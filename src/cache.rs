@@ -9,7 +9,7 @@ const CACHE_DIR_NAME: &str = "modelUsage";
 const STATS_FILE_NAME: &str = "stats.json";
 const PRICING_FILE_NAME: &str = "pricing.json";
 const UPDATE_FILE_NAME: &str = "update.json";
-const CLAUDE_PARSER_VERSION: u32 = 2;
+const CLAUDE_PARSER_VERSION: u32 = 3;
 const CODEX_PARSER_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -125,6 +125,7 @@ pub fn build_file_entry(
     path: &Path,
     metadata: &fs::Metadata,
     daily_rows: Vec<crate::model::FileDailyRow>,
+    claude_message_rows: Vec<crate::model::ClaudeMessageRow>,
 ) -> FileCacheEntry {
     FileCacheEntry {
         source,
@@ -133,6 +134,7 @@ pub fn build_file_entry(
         size: metadata.len(),
         mtime_ms: file_mtime_ms(metadata).unwrap_or_default(),
         daily_rows,
+        claude_message_rows,
     }
 }
 
@@ -210,8 +212,8 @@ fn normalize_stats_cache(
 #[cfg(test)]
 mod tests {
     use super::{
-        file_change_reason, normalize_stats_cache, parser_version, FileChangeReason,
-        StatsCacheLoadState,
+        FileChangeReason, StatsCacheLoadState, file_change_reason, normalize_stats_cache,
+        parser_version,
     };
     use crate::model::{SourceKind, StatsCache};
     use std::collections::BTreeMap;
@@ -231,6 +233,7 @@ mod tests {
                 size: 1,
                 mtime_ms: 1,
                 daily_rows: vec![],
+                claude_message_rows: vec![],
             },
         );
         let cache = StatsCache {
@@ -264,6 +267,7 @@ mod tests {
                 size: 1,
                 mtime_ms: 1,
                 daily_rows: vec![],
+                claude_message_rows: vec![],
             },
         );
         let cache = StatsCache {
@@ -317,6 +321,7 @@ mod tests {
             size: metadata.len(),
             mtime_ms: super::file_mtime_ms(&metadata).unwrap(),
             daily_rows: vec![],
+            claude_message_rows: vec![],
         };
 
         assert_eq!(
@@ -338,6 +343,7 @@ mod tests {
             size: metadata.len(),
             mtime_ms: super::file_mtime_ms(&metadata).unwrap(),
             daily_rows: vec![],
+            claude_message_rows: vec![],
         };
 
         assert_eq!(

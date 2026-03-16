@@ -276,6 +276,7 @@ mod tests {
                         ..UsageTotals::default()
                     },
                 }],
+                claude_message_rows: vec![],
             },
             FileCacheEntry {
                 source: SourceKind::Claude,
@@ -292,6 +293,7 @@ mod tests {
                         ..UsageTotals::default()
                     },
                 }],
+                claude_message_rows: vec![],
             },
         ]
     }
@@ -324,6 +326,7 @@ mod tests {
                         },
                     },
                 ],
+                claude_message_rows: vec![],
             },
             FileCacheEntry {
                 source: SourceKind::Claude,
@@ -340,6 +343,7 @@ mod tests {
                         ..UsageTotals::default()
                     },
                 }],
+                claude_message_rows: vec![],
             },
         ]
     }

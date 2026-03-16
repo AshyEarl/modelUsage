@@ -1,11 +1,14 @@
 use crate::cache::{
-    build_file_entry, file_change_reason, load_stats_cache_with_state, save_stats_cache,
-    FileChangeReason, StatsCacheLoadState,
+    FileChangeReason, StatsCacheLoadState, build_file_entry, file_change_reason,
+    load_stats_cache_with_state, parser_version, save_stats_cache,
 };
 use crate::claude;
 use crate::cli::Cli;
 use crate::codex;
-use crate::model::{DailyReport, FileCacheEntry, SourceKind, StatsCache};
+use crate::model::{
+    ClaudeMessageRow, DailyReport, FileCacheEntry, FileDailyRow, SourceKind, StatsCache,
+    UsageTotals,
+};
 use crate::pricing;
 use crate::profile;
 use crate::report;
@@ -13,6 +16,7 @@ use crate::timezone::AggregationTz;
 use anyhow::{Context, Result};
 use chrono::Days;
 use dirs::home_dir;
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -136,7 +140,10 @@ pub fn run(cli: Cli) -> Result<DailyReport> {
 
     let report_started = Instant::now();
     let prices = pricing::load_prices()?;
-    let mut entries: Vec<FileCacheEntry> = cache.files.into_values().collect();
+    let mut entries: Vec<FileCacheEntry> = dedup_claude_entries_by_session_message(
+        cache.files.into_values().collect(),
+        &aggregation_tz,
+    );
     if !cli.all {
         trim_entries_to_latest_month(&mut entries);
     }
@@ -224,11 +231,18 @@ fn scan_source(
             // Reparse only changed files so we do not rescan the full history on every run.
             // 文件变了才重新解析，避免每次都把历史日志全扫一遍。
             let parse_started = Instant::now();
-            let daily_rows = match source {
-                SourceKind::Claude => claude::parse_file(&path, aggregation_tz),
-                SourceKind::Codex => codex::parse_file(&path, aggregation_tz),
-            }
-            .with_context(|| format!("failed to parse {}", path.display()))?;
+            let (daily_rows, claude_message_rows) = match source {
+                SourceKind::Claude => {
+                    let parsed = claude::parse_file_detailed(&path, aggregation_tz)
+                        .with_context(|| format!("failed to parse {}", path.display()))?;
+                    (parsed.daily_rows, parsed.message_rows)
+                }
+                SourceKind::Codex => {
+                    let daily_rows = codex::parse_file(&path, aggregation_tz)
+                        .with_context(|| format!("failed to parse {}", path.display()))?;
+                    (daily_rows, Vec::new())
+                }
+            };
             let elapsed = parse_started.elapsed();
             parsed_ms += elapsed.as_millis();
             parsed_rows += daily_rows.len() as u64;
@@ -248,7 +262,7 @@ fn scan_source(
                     elapsed.as_millis()
                 ));
             }
-            build_file_entry(source, &path, &metadata, daily_rows)
+            build_file_entry(source, &path, &metadata, daily_rows, claude_message_rows)
         } else {
             reused_files += 1;
             if let Some(existing_entry) = existing {
@@ -284,6 +298,158 @@ fn scan_source(
         invalidations,
         parse_dirs,
     })
+}
+
+#[derive(Debug, Clone)]
+struct ClaudeDedupCandidate {
+    row: ClaudeMessageRow,
+    from_subagent_file: bool,
+}
+
+fn dedup_claude_entries_by_session_message(
+    entries: Vec<FileCacheEntry>,
+    aggregation_tz: &AggregationTz,
+) -> Vec<FileCacheEntry> {
+    let mut claude_entries = Vec::new();
+    let mut other_entries = Vec::new();
+    for entry in entries {
+        if entry.source == SourceKind::Claude {
+            claude_entries.push(entry);
+        } else {
+            other_entries.push(entry);
+        }
+    }
+    if claude_entries.is_empty() {
+        return other_entries;
+    }
+
+    // Keep backward compatibility for old cache files that only stored daily rows.
+    // 兼容旧缓存：如果没有消息级缓存，就保持原有按文件日聚合路径。
+    if !claude_entries
+        .iter()
+        .any(|entry| !entry.claude_message_rows.is_empty())
+    {
+        other_entries.extend(claude_entries);
+        return other_entries;
+    }
+
+    let mut deduped: BTreeMap<(String, String), ClaudeDedupCandidate> = BTreeMap::new();
+    for entry in claude_entries {
+        let session_key = claude_session_key_from_path(&entry.path);
+        let from_subagent_file = is_subagent_path(&entry.path);
+        for row in entry.claude_message_rows {
+            let key = (session_key.clone(), row.message_key.clone());
+            let candidate = ClaudeDedupCandidate {
+                row,
+                from_subagent_file,
+            };
+            let should_replace = deduped
+                .get(&key)
+                .map(|existing| {
+                    compare_claude_dedup_candidate(&candidate, existing) == Ordering::Greater
+                })
+                .unwrap_or(true);
+            if should_replace {
+                deduped.insert(key, candidate);
+            }
+        }
+    }
+
+    if deduped.is_empty() {
+        return other_entries;
+    }
+
+    let mut daily: BTreeMap<(chrono::NaiveDate, String, String), UsageTotals> = BTreeMap::new();
+    for candidate in deduped.into_values() {
+        let day = aggregation_tz.date_for(candidate.row.timestamp);
+        let key = (
+            day,
+            candidate.row.project.clone(),
+            candidate.row.model.clone(),
+        );
+        daily
+            .entry(key)
+            .or_default()
+            .add_assign(&candidate.row.usage);
+    }
+    let daily_rows: Vec<FileDailyRow> = daily
+        .into_iter()
+        .map(|((date, project, model), usage)| FileDailyRow {
+            date,
+            project,
+            model,
+            usage,
+        })
+        .collect();
+
+    other_entries.push(FileCacheEntry {
+        source: SourceKind::Claude,
+        parser_version: parser_version(SourceKind::Claude),
+        path: PathBuf::from("<claude-session-dedup>"),
+        size: 0,
+        mtime_ms: 0,
+        daily_rows,
+        claude_message_rows: Vec::new(),
+    });
+    other_entries
+}
+
+fn compare_claude_dedup_candidate(a: &ClaudeDedupCandidate, b: &ClaudeDedupCandidate) -> Ordering {
+    // Conflict resolution order: total, then output, then timestamp, then prefer non-subagent file.
+    // 冲突选择顺序：先 total，再 output，再时间戳，最后优先非 subagent 文件。
+    a.row
+        .usage
+        .total
+        .cmp(&b.row.usage.total)
+        .then_with(|| a.row.usage.output.cmp(&b.row.usage.output))
+        .then_with(|| a.row.timestamp.cmp(&b.row.timestamp))
+        .then_with(|| (!a.from_subagent_file).cmp(&(!b.from_subagent_file)))
+}
+
+fn is_subagent_path(path: &Path) -> bool {
+    path.components()
+        .any(|component| component.as_os_str() == "subagents")
+}
+
+fn claude_session_key_from_path(path: &Path) -> String {
+    let components: Vec<String> = path
+        .components()
+        .filter_map(|component| component.as_os_str().to_str().map(str::to_string))
+        .collect();
+    if let Some(projects_idx) = components.iter().position(|part| part == "projects") {
+        if components.len() > projects_idx + 2 {
+            let candidate = &components[projects_idx + 2];
+            if looks_like_uuid(candidate) {
+                return candidate.clone();
+            }
+        }
+    }
+    for component in path.components().rev() {
+        let Some(raw) = component.as_os_str().to_str() else {
+            continue;
+        };
+        let trimmed = raw.strip_suffix(".jsonl").unwrap_or(raw);
+        if looks_like_uuid(trimmed) {
+            return trimmed.to_string();
+        }
+    }
+    path.to_string_lossy().to_string()
+}
+
+fn looks_like_uuid(value: &str) -> bool {
+    if value.len() != 36 {
+        return false;
+    }
+    for (idx, byte) in value.bytes().enumerate() {
+        if matches!(idx, 8 | 13 | 18 | 23) {
+            if byte != b'-' {
+                return false;
+            }
+        } else if !byte.is_ascii_hexdigit() {
+            return false;
+        }
+    }
+    true
 }
 
 fn source_name(source: SourceKind) -> &'static str {
@@ -369,10 +535,7 @@ fn log_build_summary(
             .unwrap_or_else(|| "file_changed".to_string())
     };
 
-    profile::build_log(format!(
-        "Cache invalid[{}], rebuilding...",
-        rebuild_reason
-    ));
+    profile::build_log(format!("Cache invalid[{}], rebuilding...", rebuild_reason));
     profile::build_log(format!(
         "Cache rebuild finish, use {}ms, top 3 hotspot dirs:",
         run_ms
@@ -434,13 +597,290 @@ fn trim_entries_to_latest_month(entries: &mut [FileCacheEntry]) {
 
 #[cfg(test)]
 mod tests {
-    use super::codex_source_roots;
+    use super::{
+        claude_session_key_from_path, codex_source_roots, dedup_claude_entries_by_session_message,
+    };
+    use crate::model::{ClaudeMessageRow, FileCacheEntry, FileDailyRow, SourceKind, UsageTotals};
+    use crate::timezone::AggregationTz;
+    use chrono::Utc;
     use std::path::Path;
+    use std::path::PathBuf;
 
     #[test]
     fn codex_roots_include_archived_sessions() {
         let roots = codex_source_roots(Path::new("/tmp/.codex"));
         assert_eq!(roots[0], Path::new("/tmp/.codex/sessions"));
         assert_eq!(roots[1], Path::new("/tmp/.codex/archived_sessions"));
+    }
+
+    #[test]
+    fn session_key_uses_projects_layout_before_fallback_scan() {
+        let session = "11111111-1111-1111-1111-111111111111";
+        let subagent_uuid = "22222222-2222-2222-2222-222222222222";
+        let path =
+            format!("/tmp/.claude/projects/demo/{session}/subagents/{subagent_uuid}/child.jsonl");
+        assert_eq!(claude_session_key_from_path(Path::new(&path)), session);
+    }
+
+    #[test]
+    fn dedups_claude_messages_within_same_session() {
+        let tz = AggregationTz::parse(Some("UTC")).unwrap();
+        let session = "11111111-1111-1111-1111-111111111111";
+        let entries = vec![
+            claude_entry(
+                format!("/tmp/.claude/projects/demo/{session}/main.jsonl"),
+                vec![
+                    message_row(
+                        "msg-1",
+                        "2026-03-01T00:00:00Z",
+                        "/repo/demo",
+                        "sonnet-4-6",
+                        usage(10, 20, 100),
+                    ),
+                    message_row(
+                        "msg-2",
+                        "2026-03-01T00:10:00Z",
+                        "/repo/demo",
+                        "sonnet-4-6",
+                        usage(1, 2, 10),
+                    ),
+                ],
+            ),
+            claude_entry(
+                format!("/tmp/.claude/projects/demo/{session}/subagents/a/child.jsonl"),
+                vec![message_row(
+                    "msg-1",
+                    "2026-03-01T00:01:00Z",
+                    "/repo/demo",
+                    "sonnet-4-6",
+                    usage(10, 30, 150),
+                )],
+            ),
+        ];
+
+        let deduped = dedup_claude_entries_by_session_message(entries, &tz);
+        assert_eq!(deduped.len(), 1);
+        let row = deduped[0]
+            .daily_rows
+            .iter()
+            .find(|row| row.model == "sonnet-4-6");
+        assert!(row.is_some());
+        let row = row.unwrap();
+        assert_eq!(row.usage.input, 11);
+        assert_eq!(row.usage.output, 32);
+        assert_eq!(row.usage.total, 160);
+    }
+
+    #[test]
+    fn keeps_same_message_id_from_different_sessions() {
+        let tz = AggregationTz::parse(Some("UTC")).unwrap();
+        let entries = vec![
+            claude_entry(
+                "/tmp/.claude/projects/demo/11111111-1111-1111-1111-111111111111/main.jsonl",
+                vec![message_row(
+                    "msg-1",
+                    "2026-03-01T00:00:00Z",
+                    "/repo/demo",
+                    "sonnet-4-6",
+                    usage(1, 2, 10),
+                )],
+            ),
+            claude_entry(
+                "/tmp/.claude/projects/demo/22222222-2222-2222-2222-222222222222/main.jsonl",
+                vec![message_row(
+                    "msg-1",
+                    "2026-03-01T00:00:00Z",
+                    "/repo/demo",
+                    "sonnet-4-6",
+                    usage(3, 4, 20),
+                )],
+            ),
+        ];
+
+        let deduped = dedup_claude_entries_by_session_message(entries, &tz);
+        assert_eq!(deduped.len(), 1);
+        assert_eq!(deduped[0].daily_rows.len(), 1);
+        assert_eq!(deduped[0].daily_rows[0].usage.input, 4);
+        assert_eq!(deduped[0].daily_rows[0].usage.output, 6);
+        assert_eq!(deduped[0].daily_rows[0].usage.total, 30);
+    }
+
+    #[test]
+    fn prefers_higher_output_when_total_is_equal() {
+        let tz = AggregationTz::parse(Some("UTC")).unwrap();
+        let session = "11111111-1111-1111-1111-111111111111";
+        let entries = vec![
+            claude_entry(
+                format!("/tmp/.claude/projects/demo/{session}/main.jsonl"),
+                vec![message_row(
+                    "msg-1",
+                    "2026-03-01T00:00:00Z",
+                    "/repo/demo",
+                    "sonnet-4-6",
+                    usage(5, 10, 100),
+                )],
+            ),
+            claude_entry(
+                format!("/tmp/.claude/projects/demo/{session}/subagents/a/child.jsonl"),
+                vec![message_row(
+                    "msg-1",
+                    "2026-03-01T00:00:01Z",
+                    "/repo/demo",
+                    "sonnet-4-6",
+                    usage(5, 20, 100),
+                )],
+            ),
+        ];
+
+        let deduped = dedup_claude_entries_by_session_message(entries, &tz);
+        assert_eq!(deduped.len(), 1);
+        assert_eq!(deduped[0].daily_rows.len(), 1);
+        assert_eq!(deduped[0].daily_rows[0].usage.output, 20);
+    }
+
+    #[test]
+    fn prefers_non_subagent_when_usage_and_timestamp_tie() {
+        let tz = AggregationTz::parse(Some("UTC")).unwrap();
+        let session = "11111111-1111-1111-1111-111111111111";
+        let entries = vec![
+            claude_entry(
+                format!("/tmp/.claude/projects/demo/{session}/main.jsonl"),
+                vec![message_row(
+                    "msg-1",
+                    "2026-03-01T00:00:00Z",
+                    "/repo/demo",
+                    "sonnet-4-6",
+                    usage(5, 10, 100),
+                )],
+            ),
+            claude_entry(
+                format!("/tmp/.claude/projects/demo/{session}/subagents/a/child.jsonl"),
+                vec![message_row(
+                    "msg-1",
+                    "2026-03-01T00:00:00Z",
+                    "/repo/demo",
+                    "sonnet-4-6",
+                    usage(5, 10, 100),
+                )],
+            ),
+        ];
+
+        let deduped = dedup_claude_entries_by_session_message(entries, &tz);
+        assert_eq!(deduped.len(), 1);
+        assert_eq!(deduped[0].daily_rows.len(), 1);
+        assert_eq!(deduped[0].daily_rows[0].usage.input, 5);
+        assert_eq!(deduped[0].daily_rows[0].usage.output, 10);
+        assert_eq!(deduped[0].daily_rows[0].usage.total, 100);
+    }
+
+    #[test]
+    fn falls_back_when_claude_message_rows_are_missing() {
+        let tz = AggregationTz::parse(Some("UTC")).unwrap();
+        let daily_row = FileDailyRow {
+            date: chrono::NaiveDate::from_ymd_opt(2026, 3, 1).unwrap(),
+            project: "/repo/demo".to_string(),
+            model: "sonnet-4-6".to_string(),
+            usage: usage(5, 6, 20),
+        };
+        let entries = vec![FileCacheEntry {
+            source: SourceKind::Claude,
+            parser_version: 3,
+            path: PathBuf::from("/tmp/.claude/projects/demo/legacy.jsonl"),
+            size: 1,
+            mtime_ms: 1,
+            daily_rows: vec![daily_row.clone()],
+            claude_message_rows: vec![],
+        }];
+
+        let deduped = dedup_claude_entries_by_session_message(entries, &tz);
+        assert_eq!(deduped.len(), 1);
+        assert_eq!(deduped[0].daily_rows.len(), 1);
+        assert_eq!(deduped[0].daily_rows[0].date, daily_row.date);
+        assert_eq!(deduped[0].daily_rows[0].project, daily_row.project);
+        assert_eq!(deduped[0].daily_rows[0].model, daily_row.model);
+        assert_eq!(deduped[0].daily_rows[0].usage.total, daily_row.usage.total);
+    }
+
+    #[test]
+    fn keeps_codex_entries_unchanged() {
+        let tz = AggregationTz::parse(Some("UTC")).unwrap();
+        let codex_row = FileDailyRow {
+            date: chrono::NaiveDate::from_ymd_opt(2026, 3, 1).unwrap(),
+            project: "/repo/codex".to_string(),
+            model: "gpt-5".to_string(),
+            usage: usage(7, 8, 30),
+        };
+        let entries = vec![
+            FileCacheEntry {
+                source: SourceKind::Codex,
+                parser_version: 2,
+                path: PathBuf::from("/tmp/.codex/sessions/a.jsonl"),
+                size: 1,
+                mtime_ms: 1,
+                daily_rows: vec![codex_row.clone()],
+                claude_message_rows: vec![],
+            },
+            claude_entry(
+                "/tmp/.claude/projects/demo/11111111-1111-1111-1111-111111111111/main.jsonl",
+                vec![message_row(
+                    "msg-1",
+                    "2026-03-01T00:00:00Z",
+                    "/repo/demo",
+                    "sonnet-4-6",
+                    usage(1, 2, 10),
+                )],
+            ),
+        ];
+
+        let deduped = dedup_claude_entries_by_session_message(entries, &tz);
+        assert_eq!(deduped.len(), 2);
+        let codex = deduped
+            .iter()
+            .find(|entry| entry.source == SourceKind::Codex);
+        assert!(codex.is_some());
+        let codex = codex.unwrap();
+        assert_eq!(codex.daily_rows.len(), 1);
+        assert_eq!(codex.daily_rows[0].project, codex_row.project);
+        assert_eq!(codex.daily_rows[0].model, codex_row.model);
+        assert_eq!(codex.daily_rows[0].usage.total, codex_row.usage.total);
+    }
+
+    fn claude_entry(path: impl Into<PathBuf>, rows: Vec<ClaudeMessageRow>) -> FileCacheEntry {
+        FileCacheEntry {
+            source: SourceKind::Claude,
+            parser_version: 3,
+            path: path.into(),
+            size: 1,
+            mtime_ms: 1,
+            daily_rows: vec![],
+            claude_message_rows: rows,
+        }
+    }
+
+    fn message_row(
+        message_key: &str,
+        ts: &str,
+        project: &str,
+        model: &str,
+        usage: UsageTotals,
+    ) -> ClaudeMessageRow {
+        ClaudeMessageRow {
+            message_key: message_key.to_string(),
+            timestamp: chrono::DateTime::parse_from_rfc3339(ts)
+                .unwrap()
+                .with_timezone(&Utc),
+            project: project.to_string(),
+            model: model.to_string(),
+            usage,
+        }
+    }
+
+    fn usage(input: u64, output: u64, total: u64) -> UsageTotals {
+        UsageTotals {
+            input,
+            output,
+            total,
+            ..UsageTotals::default()
+        }
     }
 }
