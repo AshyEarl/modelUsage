@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-03-06T00:00:00Z",
+  "updated_at": "2026-03-20T00:00:00Z",
   "models": {
     "haiku-4-5": {
       "input_cost_per_mtoken": 1.0,
@@ -58,6 +58,13 @@
       "cache_write_1h_cost_per_mtoken": null,
       "cache_read_cost_per_mtoken": 0.125
     },
+    "gpt-5.1-codex-mini": {
+      "input_cost_per_mtoken": 0.25,
+      "output_cost_per_mtoken": 2.0,
+      "cache_write_5m_cost_per_mtoken": null,
+      "cache_write_1h_cost_per_mtoken": null,
+      "cache_read_cost_per_mtoken": 0.025
+    },
     "gpt-5.1-codex-max": {
       "input_cost_per_mtoken": 1.25,
       "output_cost_per_mtoken": 10.0,
@@ -99,6 +106,13 @@
       "cache_write_5m_cost_per_mtoken": null,
       "cache_write_1h_cost_per_mtoken": null,
       "cache_read_cost_per_mtoken": null
+    },
+    "codex-mini-latest": {
+      "input_cost_per_mtoken": 1.5,
+      "output_cost_per_mtoken": 6.0,
+      "cache_write_5m_cost_per_mtoken": null,
+      "cache_write_1h_cost_per_mtoken": null,
+      "cache_read_cost_per_mtoken": 0.375
     }
   }
 }

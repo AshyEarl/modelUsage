@@ -136,6 +136,8 @@ mod tests {
     fn has_new_codex_models() {
         let prices = load_bundled_prices().unwrap();
         for model in [
+            "codex-mini-latest",
+            "gpt-5.1-codex-mini",
             "gpt-5.1-codex-max",
             "gpt-5.2",
             "gpt-5.2-codex",

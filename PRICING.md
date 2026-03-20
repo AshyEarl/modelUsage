@@ -40,7 +40,7 @@ For this project, a maintained local pricing file is more predictable.
 
 ## Official sources
 
-As of **2026-03-06**, OpenAI pricing was manually verified from:
+As of **2026-03-20**, OpenAI pricing was manually verified from:
 
 - OpenAI Pricing  
   https://developers.openai.com/api/docs/pricing
@@ -67,9 +67,11 @@ Anthropic / Claude prices are also maintained from official published pricing.
 
 ### OpenAI / Codex
 
+- `codex-mini-latest` (deprecated alias, still priced for historical usage)
 - `gpt-5`
 - `gpt-5-codex`
 - `gpt-5.1-codex`
+- `gpt-5.1-codex-mini`
 - `gpt-5.1-codex-max`
 - `gpt-5.2`
 - `gpt-5.2-codex`
@@ -86,7 +88,7 @@ Structure:
 ```json
 {
   "version": 1,
-  "updated_at": "2026-03-06T00:00:00Z",
+  "updated_at": "2026-03-20T00:00:00Z",
   "models": {
     "gpt-5.2-codex": {
       "input_cost_per_mtoken": 1.75,
