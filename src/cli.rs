@@ -58,6 +58,11 @@ pub struct Cli {
     #[arg(long, help = "Only include Codex logs")]
     pub codex: bool,
 
+    /// Only include Copilot CLI local logs.
+    /// 只统计 Copilot CLI 本地日志。
+    #[arg(long, help = "Only include Copilot logs")]
+    pub copilot: bool,
+
     #[arg(skip = ReportGrouping::Daily)]
     pub grouping: ReportGrouping,
 }

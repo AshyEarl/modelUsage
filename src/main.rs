@@ -3,6 +3,7 @@ mod cache;
 mod claude;
 mod cli;
 mod codex;
+mod copilot;
 mod model;
 mod pricing;
 mod profile;
@@ -47,9 +48,13 @@ fn real_main() -> Result<()> {
 }
 
 fn report_label(cli: &Cli) -> &'static str {
-    match (cli.claude, cli.codex) {
-        (true, false) => "Claude",
-        (false, true) => "Codex",
-        _ => "Claude + Codex",
+    match (cli.claude, cli.codex, cli.copilot) {
+        (true, false, false) => "Claude",
+        (false, true, false) => "Codex",
+        (false, false, true) => "Copilot",
+        (true, true, false) => "Claude + Codex",
+        (true, false, true) => "Claude + Copilot",
+        (false, true, true) => "Codex + Copilot",
+        _ => "Claude + Codex + Copilot",
     }
 }

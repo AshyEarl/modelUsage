@@ -1,6 +1,6 @@
 # modelUsage
 
-`modelUsage` 是一个 Rust CLI，用来统计本地 `Claude Code` 和 `Codex` 的 token / 成本使用情况。
+`modelUsage` 是一个 Rust CLI，用来统计本地 `Claude Code`、`Codex` 和 `GitHub Copilot CLI` 的 token / 成本使用情况。
 
 ## 示例输出
 
@@ -77,9 +77,10 @@ install -m 755 modelUsage ~/.local/bin/modelUsage
 ## 使用方式
 
 ```bash
-modelUsage                 # 最近 30 天，Claude + Codex
+modelUsage                 # 最近 30 天，Claude + Codex + Copilot
 modelUsage --claude        # 只看 Claude
 modelUsage --codex         # 只看 Codex
+modelUsage --copilot       # 只看 Copilot CLI
 modelUsage --project       # 仅按项目（cwd）汇总
 modelUsage --daily --project    # 日期 -> 项目
 modelUsage --project --daily    # 项目 -> 日期
@@ -97,6 +98,7 @@ modelUsage --update        # 下载并替换当前二进制
 - 偏移快捷写法，例如 `UTC+8`、`utc+8`、`+08:00`、`-3:30`
 - `local`（默认）
 - Codex 数据源会同时包含 `~/.codex/sessions` 与 `~/.codex/archived_sessions`（目录存在时）。
+- Copilot CLI 数据来自 `~/.copilot/session-state/*/events.jsonl`（需要 Copilot CLI v0.0.422+）。
 
 ## 更新行为
 
@@ -123,6 +125,6 @@ modelUsage --update        # 下载并替换当前二进制
 
 ## 版本说明
 
-- 当前版本：`0.1.7`
+- 当前版本：`0.1.10`
 - 版本号来源：`Cargo.toml`
 - Tag 格式：`vX.Y.Z`

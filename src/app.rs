@@ -5,6 +5,7 @@ use crate::cache::{
 use crate::claude;
 use crate::cli::Cli;
 use crate::codex;
+use crate::copilot;
 use crate::model::{
     ClaudeMessageRow, DailyReport, FileCacheEntry, FileDailyRow, SourceKind, StatsCache,
     UsageTotals,
@@ -59,10 +60,12 @@ struct SourceBuildStats {
 pub fn run(cli: Cli) -> Result<DailyReport> {
     let run_started = Instant::now();
     profile::set_suppressed(cli.json);
-    // Keep source selection simple: default to both sources, or only the explicitly requested one.
-    // 参数规则保持简单：不传时默认两边都统计，只传一个时就只扫一个来源。
-    let include_claude = cli.claude || !cli.codex;
-    let include_codex = cli.codex || !cli.claude;
+    // Keep source selection simple: when any flag is set only include flagged sources; otherwise include all.
+    // 参数规则保持简单：任何一个来源 flag 设了就只扫指定的来源，都不传时默认全部扫。
+    let any_flag = cli.claude || cli.codex || cli.copilot;
+    let include_claude = cli.claude || !any_flag;
+    let include_codex = cli.codex || !any_flag;
+    let include_copilot = cli.copilot || !any_flag;
     let debug_profile = profile::enabled();
     let emit_build_stats = !cli.json;
 
@@ -70,8 +73,8 @@ pub fn run(cli: Cli) -> Result<DailyReport> {
     let aggregation_tz_key = aggregation_tz.cache_key();
     if debug_profile {
         profile::log(format!(
-            "run start refresh={} all={} grouping={:?} tz={} include_claude={} include_codex={}",
-            cli.refresh, cli.all, cli.grouping, aggregation_tz_key, include_claude, include_codex
+            "run start refresh={} all={} grouping={:?} tz={} include_claude={} include_codex={} include_copilot={}",
+            cli.refresh, cli.all, cli.grouping, aggregation_tz_key, include_claude, include_codex, include_copilot
         ));
     }
 
@@ -131,6 +134,20 @@ pub fn run(cli: Cli) -> Result<DailyReport> {
             )?;
             source_stats.push(stats);
         }
+    }
+    if include_copilot {
+        let root = home_dir()
+            .context("failed to resolve home directory")?
+            .join(".copilot/session-state");
+        let stats = scan_source(
+            SourceKind::Copilot,
+            &root,
+            &aggregation_tz,
+            &mut cache,
+            &mut next_files,
+            debug_profile,
+        )?;
+        source_stats.push(stats);
     }
 
     let save_cache_started = Instant::now();
@@ -239,6 +256,11 @@ fn scan_source(
                 }
                 SourceKind::Codex => {
                     let daily_rows = codex::parse_file(&path, aggregation_tz)
+                        .with_context(|| format!("failed to parse {}", path.display()))?;
+                    (daily_rows, Vec::new())
+                }
+                SourceKind::Copilot => {
+                    let daily_rows = copilot::parse_file(&path, aggregation_tz)
                         .with_context(|| format!("failed to parse {}", path.display()))?;
                     (daily_rows, Vec::new())
                 }
@@ -456,6 +478,7 @@ fn source_name(source: SourceKind) -> &'static str {
     match source {
         SourceKind::Claude => "claude",
         SourceKind::Codex => "codex",
+        SourceKind::Copilot => "copilot",
     }
 }
 

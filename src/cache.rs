@@ -11,6 +11,7 @@ const PRICING_FILE_NAME: &str = "pricing.json";
 const UPDATE_FILE_NAME: &str = "update.json";
 const CLAUDE_PARSER_VERSION: u32 = 3;
 const CODEX_PARSER_VERSION: u32 = 2;
+const COPILOT_PARSER_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StatsCacheLoadState {
@@ -142,6 +143,7 @@ pub fn parser_version(source: SourceKind) -> u32 {
     match source {
         SourceKind::Claude => CLAUDE_PARSER_VERSION,
         SourceKind::Codex => CODEX_PARSER_VERSION,
+        SourceKind::Copilot => COPILOT_PARSER_VERSION,
     }
 }
 

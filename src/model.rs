@@ -3,13 +3,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
-/// Marks whether a usage record comes from Claude or Codex for parser-specific handling.
-/// 标记一条统计数据来自 Claude 还是 Codex，便于后续扩展不同解析逻辑。
+/// Marks whether a usage record comes from Claude, Codex, or Copilot for parser-specific handling.
+/// 标记一条统计数据来自 Claude、Codex 还是 Copilot，便于后续扩展不同解析逻辑。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SourceKind {
     Claude,
     Codex,
+    Copilot,
 }
 
 /// Unified token accounting structure shared by Claude and Codex after parsing.

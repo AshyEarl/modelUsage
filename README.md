@@ -1,6 +1,6 @@
 # modelUsage
 
-`modelUsage` is a Rust CLI for local token/cost reports from `Claude Code` and `Codex`.
+`modelUsage` is a Rust CLI for local token/cost reports from `Claude Code`, `Codex`, and `GitHub Copilot CLI`.
 
 ## Example output
 
@@ -77,9 +77,10 @@ install -m 755 modelUsage ~/.local/bin/modelUsage
 ## Usage
 
 ```bash
-modelUsage                 # latest 30 days, Claude + Codex
+modelUsage                 # latest 30 days, Claude + Codex + Copilot
 modelUsage --claude        # Claude only
 modelUsage --codex         # Codex only
+modelUsage --copilot       # Copilot CLI only
 modelUsage --project       # project summary (grouped by cwd only)
 modelUsage --daily --project    # date -> project
 modelUsage --project --daily    # project -> date
@@ -97,6 +98,7 @@ Timezone accepts:
 - offset shortcuts, e.g. `UTC+8`, `utc+8`, `+08:00`, `-3:30`
 - `local` (default)
 - Codex source roots include both `~/.codex/sessions` and `~/.codex/archived_sessions` when present.
+- Copilot CLI data is read from `~/.copilot/session-state/*/events.jsonl` (requires Copilot CLI v0.0.422+).
 
 ## Update behavior
 
@@ -123,6 +125,6 @@ Timezone accepts:
 
 ## Versioning
 
-- Current version: `0.1.7`
+- Current version: `0.1.10`
 - Source of truth: `Cargo.toml`
 - Tag format: `vX.Y.Z`
