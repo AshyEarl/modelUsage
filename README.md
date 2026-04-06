@@ -125,6 +125,6 @@ Timezone accepts:
 
 ## Versioning
 
-- Current version: `0.1.10`
+- Current version: `0.1.11`
 - Source of truth: `Cargo.toml`
 - Tag format: `vX.Y.Z`

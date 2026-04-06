@@ -19,18 +19,29 @@ pub fn parse_file(path: &Path, aggregation_tz: &AggregationTz) -> Result<Vec<Fil
 
     let mut session_start_time: Option<DateTime<Utc>> = None;
     let mut project = "<unknown-project>".to_string();
-    let mut shutdown_metrics: Option<BTreeMap<String, CopilotModelMetric>> = None;
     let mut current_model: Option<String> = None;
 
-    // Compaction tokens are NOT included in shutdown modelMetrics; accumulate them separately.
-    // 压缩 token 不包含在 shutdown 的 modelMetrics 里，需要单独累加。
-    let mut compaction_input: u64 = 0;
-    let mut compaction_output: u64 = 0;
-    let mut compaction_cache_read: u64 = 0;
+    // A single events.jsonl may contain multiple segments (resume cycles). Each segment ends
+    // with session.shutdown whose modelMetrics cover only that segment, NOT the cumulative total.
+    // We must sum all shutdown events plus any trailing segment without shutdown (abnormal exit).
+    // 一个 events.jsonl 可能包含多个分段（resume 周期）。每次 session.shutdown 的 modelMetrics
+    // 只覆盖该分段，不是累计值。需要把所有 shutdown 事件和尾部无 shutdown 的分段全部加起来。
+    let mut all_shutdown_metrics: Vec<BTreeMap<String, CopilotModelMetric>> = Vec::new();
 
-    // Fallback accumulators for sessions without shutdown (abnormal exit).
-    // 异常退出没有 shutdown 事件时的备用累加器。
-    let mut fallback_output: u64 = 0;
+    // Compaction tokens tracked per-segment; reset after each shutdown.
+    // 压缩 token 按分段跟踪，每次 shutdown 后重置。
+    let mut seg_compaction_input: u64 = 0;
+    let mut seg_compaction_output: u64 = 0;
+    let mut seg_compaction_cache_read: u64 = 0;
+    // Accumulated compaction totals across all segments.
+    // 所有分段的压缩 token 累计。
+    let mut total_compaction_input: u64 = 0;
+    let mut total_compaction_output: u64 = 0;
+    let mut total_compaction_cache_read: u64 = 0;
+
+    // Fallback output for the trailing segment without shutdown (abnormal exit / still running).
+    // 尾部没有 shutdown 的分段（异常退出或仍在运行）的 output 备用累加。
+    let mut trailing_fallback_output: u64 = 0;
 
     let mut record_no: u64 = 0;
     let mut parsed_records: u64 = 0;
@@ -74,21 +85,32 @@ pub fn parse_file(path: &Path, aggregation_tz: &AggregationTz) -> Result<Vec<Fil
                             if let Some(cm) = &data.current_model {
                                 current_model = Some(cm.clone());
                             }
-                            shutdown_metrics = data.model_metrics;
+                            if let Some(mm) = data.model_metrics {
+                                all_shutdown_metrics.push(mm);
+                            }
+                            // Flush segment compaction into total and reset.
+                            // 将本段压缩 token 汇入总计并重置。
+                            total_compaction_input += seg_compaction_input;
+                            total_compaction_output += seg_compaction_output;
+                            total_compaction_cache_read += seg_compaction_cache_read;
+                            seg_compaction_input = 0;
+                            seg_compaction_output = 0;
+                            seg_compaction_cache_read = 0;
+                            trailing_fallback_output = 0;
                         }
                     }
                     "session.compaction_complete" => {
                         if let Some(data) = event.data {
                             if let Some(u) = data.compaction_tokens_used {
-                                compaction_input += u.input.unwrap_or(0);
-                                compaction_output += u.output.unwrap_or(0);
-                                compaction_cache_read += u.cached_input.unwrap_or(0);
+                                seg_compaction_input += u.input.unwrap_or(0);
+                                seg_compaction_output += u.output.unwrap_or(0);
+                                seg_compaction_cache_read += u.cached_input.unwrap_or(0);
                             }
                         }
                     }
                     "assistant.message" => {
                         if let Some(data) = event.data {
-                            fallback_output += data.output_tokens.unwrap_or(0);
+                            trailing_fallback_output += data.output_tokens.unwrap_or(0);
                         }
                     }
                     "session.model_change" => {
@@ -113,15 +135,23 @@ pub fn parse_file(path: &Path, aggregation_tz: &AggregationTz) -> Result<Vec<Fil
         }
     }
 
+    // Include trailing segment compaction (segment still running or crashed).
+    // 把尾部分段的压缩 token 也算进去。
+    total_compaction_input += seg_compaction_input;
+    total_compaction_output += seg_compaction_output;
+    total_compaction_cache_read += seg_compaction_cache_read;
+
     let mut daily: BTreeMap<(NaiveDate, String, String), UsageTotals> = BTreeMap::new();
     let day = session_start_time
         .map(|ts| aggregation_tz.date_for(ts))
         .unwrap_or_else(|| chrono::Utc::now().date_naive());
 
-    let has_compaction = compaction_input > 0 || compaction_output > 0;
+    let has_compaction = total_compaction_input > 0 || total_compaction_output > 0;
 
-    if let Some(metrics) = shutdown_metrics {
-        for (raw_model, metric) in &metrics {
+    // Sum all shutdown segments.
+    // 累加所有 shutdown 分段。
+    for metrics in &all_shutdown_metrics {
+        for (raw_model, metric) in metrics {
             let model = normalize_copilot_model(raw_model);
             let usage = metric.usage.as_ref().cloned().unwrap_or_default();
             let raw_input = usage.input_tokens.unwrap_or(0);
@@ -146,54 +176,54 @@ pub fn parse_file(path: &Path, aggregation_tz: &AggregationTz) -> Result<Vec<Fil
             let key = (day, project.clone(), model);
             daily.entry(key).or_default().add_assign(&totals);
         }
+    }
 
-        // Add compaction tokens. Compaction uses the session's current model but is not
-        // tracked in shutdown modelMetrics. Attribute to the first model in metrics or
-        // the currentModel field.
-        // 压缩 token 不在 shutdown 统计里，归到当前模型上。
-        if has_compaction {
-            let comp_model = current_model
-                .as_deref()
-                .or_else(|| metrics.keys().next().map(|s| s.as_str()))
-                .map(|s| normalize_copilot_model(s))
-                .unwrap_or_else(|| "unknown".to_string());
-            let comp_input = compaction_input.saturating_sub(compaction_cache_read);
-            let comp_total = comp_input + compaction_output + compaction_cache_read;
-            let comp_totals = UsageTotals {
-                input: comp_input,
-                output: compaction_output,
-                reasoning: 0,
-                cache_write_5m: 0,
-                cache_write_1h: 0,
-                cache_read: compaction_cache_read,
-                total: comp_total,
-            };
-            let key = (day, project.clone(), comp_model);
-            daily.entry(key).or_default().add_assign(&comp_totals);
-        }
-    } else if fallback_output > 0 || has_compaction {
-        // No shutdown event (abnormal exit). Use accumulated assistant.message output tokens
-        // and compaction tokens as a best-effort estimate.
-        // 没有 shutdown 事件（异常退出），用 assistant.message 和 compaction 累加做兜底估算。
+    // Add trailing segment fallback (no shutdown = abnormal exit or still running).
+    // 尾部无 shutdown 分段的兜底（异常退出或仍在运行）。
+    if trailing_fallback_output > 0 {
         let model = current_model
             .as_deref()
             .map(|s| normalize_copilot_model(s))
             .unwrap_or_else(|| "unknown".to_string());
-
-        let comp_input = compaction_input.saturating_sub(compaction_cache_read);
-        let total = fallback_output + compaction_output + comp_input + compaction_cache_read;
         let totals = UsageTotals {
-            input: comp_input,
-            output: fallback_output + compaction_output,
+            input: 0,
+            output: trailing_fallback_output,
             reasoning: 0,
             cache_write_5m: 0,
             cache_write_1h: 0,
-            cache_read: compaction_cache_read,
-            total,
+            cache_read: 0,
+            total: trailing_fallback_output,
         };
-
         let key = (day, project.clone(), model);
         daily.entry(key).or_default().add_assign(&totals);
+    }
+
+    // Add compaction tokens. Not tracked in any shutdown's modelMetrics.
+    // 累加压缩 token，不包含在任何 shutdown 的 modelMetrics 里。
+    if has_compaction {
+        let comp_model = current_model
+            .as_deref()
+            .or_else(|| {
+                all_shutdown_metrics
+                    .last()
+                    .and_then(|m| m.keys().next())
+                    .map(|s| s.as_str())
+            })
+            .map(|s| normalize_copilot_model(s))
+            .unwrap_or_else(|| "unknown".to_string());
+        let comp_input = total_compaction_input.saturating_sub(total_compaction_cache_read);
+        let comp_total = comp_input + total_compaction_output + total_compaction_cache_read;
+        let comp_totals = UsageTotals {
+            input: comp_input,
+            output: total_compaction_output,
+            reasoning: 0,
+            cache_write_5m: 0,
+            cache_write_1h: 0,
+            cache_read: total_compaction_cache_read,
+            total: comp_total,
+        };
+        let key = (day, project.clone(), comp_model);
+        daily.entry(key).or_default().add_assign(&comp_totals);
     }
 
     if profile_enabled {
@@ -367,6 +397,76 @@ mod tests {
         assert_eq!(rows[0].usage.input, 30000);
         assert_eq!(rows[0].usage.output, 11000);
         assert_eq!(rows[0].usage.cache_read, 290000);
+    }
+
+    #[test]
+    fn sums_multiple_shutdown_segments() {
+        let path = write_temp_jsonl(&[
+            session_start("2026-03-15T10:00:00Z", "/repo/demo"),
+            // First segment
+            session_shutdown(json!({
+                "claude-opus-4.6": {
+                    "requests": { "count": 10, "cost": 30 },
+                    "usage": {
+                        "inputTokens": 500000,
+                        "outputTokens": 20000,
+                        "cacheReadTokens": 400000,
+                        "cacheWriteTokens": 0
+                    }
+                }
+            })),
+            // Second segment (resume)
+            session_shutdown(json!({
+                "claude-opus-4.6": {
+                    "requests": { "count": 5, "cost": 15 },
+                    "usage": {
+                        "inputTokens": 200000,
+                        "outputTokens": 8000,
+                        "cacheReadTokens": 180000,
+                        "cacheWriteTokens": 0
+                    }
+                }
+            })),
+        ]);
+
+        let rows = parse_file(&path, &AggregationTz::parse(Some("UTC")).unwrap()).unwrap();
+        let _ = fs::remove_file(&path);
+        assert_eq!(rows.len(), 1);
+        // segment 1: input=500000-400000=100000, output=20000, cache_read=400000
+        // segment 2: input=200000-180000=20000, output=8000, cache_read=180000
+        // total: input=120000, output=28000, cache_read=580000
+        assert_eq!(rows[0].usage.input, 120000);
+        assert_eq!(rows[0].usage.output, 28000);
+        assert_eq!(rows[0].usage.cache_read, 580000);
+    }
+
+    #[test]
+    fn includes_trailing_segment_without_shutdown() {
+        let path = write_temp_jsonl(&[
+            session_start("2026-03-15T10:00:00Z", "/repo/demo"),
+            // First segment with shutdown
+            session_shutdown(json!({
+                "claude-opus-4.6": {
+                    "requests": { "count": 5, "cost": 15 },
+                    "usage": {
+                        "inputTokens": 100000,
+                        "outputTokens": 5000,
+                        "cacheReadTokens": 80000,
+                        "cacheWriteTokens": 0
+                    }
+                }
+            })),
+            // Trailing segment (still running / crashed)
+            assistant_message(1000),
+            assistant_message(500),
+        ]);
+
+        let rows = parse_file(&path, &AggregationTz::parse(Some("UTC")).unwrap()).unwrap();
+        let _ = fs::remove_file(&path);
+        assert_eq!(rows.len(), 1);
+        // shutdown: input=20000, output=5000
+        // trailing: output=1500
+        assert_eq!(rows[0].usage.output, 6500);
     }
 
     #[test]
