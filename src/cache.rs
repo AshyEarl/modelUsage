@@ -11,7 +11,7 @@ const PRICING_FILE_NAME: &str = "pricing.json";
 const UPDATE_FILE_NAME: &str = "update.json";
 const CLAUDE_PARSER_VERSION: u32 = 3;
 const CODEX_PARSER_VERSION: u32 = 2;
-const COPILOT_PARSER_VERSION: u32 = 3;
+const COPILOT_PARSER_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StatsCacheLoadState {

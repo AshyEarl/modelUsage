@@ -28,20 +28,23 @@ pub fn parse_file(path: &Path, aggregation_tz: &AggregationTz) -> Result<Vec<Fil
     // 只覆盖该分段，不是累计值。需要把所有 shutdown 事件和尾部无 shutdown 的分段全部加起来。
     let mut all_shutdown_metrics: Vec<BTreeMap<String, CopilotModelMetric>> = Vec::new();
 
-    // Compaction tokens tracked per-segment; reset after each shutdown.
-    // 压缩 token 按分段跟踪，每次 shutdown 后重置。
-    let mut seg_compaction_input: u64 = 0;
-    let mut seg_compaction_output: u64 = 0;
-    let mut seg_compaction_cache_read: u64 = 0;
-    // Accumulated compaction totals across all segments.
-    // 所有分段的压缩 token 累计。
-    let mut total_compaction_input: u64 = 0;
-    let mut total_compaction_output: u64 = 0;
-    let mut total_compaction_cache_read: u64 = 0;
+    // Compaction tokens tracked per-segment per-model; reset after each shutdown.
+    // Each compaction event is attributed to the model that was current at event time,
+    // so that later model changes don't retroactively re-attribute large token volumes.
+    // When current_model is unknown at event time, the key is None and resolved at end-of-file.
+    // 压缩 token 按分段按模型跟踪，每次 shutdown 后重置。
+    // 每个 compaction 事件归到当时的 current_model，避免后续 model_change 事件
+    // 导致大量 token 被追溯地重新归类到不同模型。
+    // 当事件发生时 current_model 未知，key 为 None，文件解析结束时再兜底归类。
+    let mut seg_compaction_by_model: BTreeMap<Option<String>, (u64, u64, u64)> = BTreeMap::new();
+    // Accumulated compaction totals across all segments, keyed by model.
+    // 所有分段的压缩 token 按模型累计。
+    let mut total_compaction_by_model: BTreeMap<Option<String>, (u64, u64, u64)> = BTreeMap::new();
 
-    // Fallback output for the trailing segment without shutdown (abnormal exit / still running).
-    // 尾部没有 shutdown 的分段（异常退出或仍在运行）的 output 备用累加。
-    let mut trailing_fallback_output: u64 = 0;
+    // Fallback output for the trailing segment without shutdown (abnormal exit / still running),
+    // keyed by model at the time of each assistant.message event. None means model was unknown.
+    // 尾部没有 shutdown 的分段的 output 备用累加，按事件发生时的模型记录。None 表示当时模型未知。
+    let mut trailing_output_by_model: BTreeMap<Option<String>, u64> = BTreeMap::new();
 
     let mut record_no: u64 = 0;
     let mut parsed_records: u64 = 0;
@@ -90,27 +93,38 @@ pub fn parse_file(path: &Path, aggregation_tz: &AggregationTz) -> Result<Vec<Fil
                             }
                             // Flush segment compaction into total and reset.
                             // 将本段压缩 token 汇入总计并重置。
-                            total_compaction_input += seg_compaction_input;
-                            total_compaction_output += seg_compaction_output;
-                            total_compaction_cache_read += seg_compaction_cache_read;
-                            seg_compaction_input = 0;
-                            seg_compaction_output = 0;
-                            seg_compaction_cache_read = 0;
-                            trailing_fallback_output = 0;
+                            for (model, (inp, out, cr)) in std::mem::take(&mut seg_compaction_by_model) {
+                                let entry = total_compaction_by_model.entry(model).or_insert((0, 0, 0));
+                                entry.0 += inp;
+                                entry.1 += out;
+                                entry.2 += cr;
+                            }
+                            trailing_output_by_model.clear();
                         }
                     }
                     "session.compaction_complete" => {
                         if let Some(data) = event.data {
                             if let Some(u) = data.compaction_tokens_used {
-                                seg_compaction_input += u.input.unwrap_or(0);
-                                seg_compaction_output += u.output.unwrap_or(0);
-                                seg_compaction_cache_read += u.cached_input.unwrap_or(0);
+                                let comp_model = current_model
+                                    .as_deref()
+                                    .map(|s| normalize_copilot_model(s));
+                                let entry = seg_compaction_by_model.entry(comp_model).or_insert((0, 0, 0));
+                                entry.0 += u.input.unwrap_or(0);
+                                entry.1 += u.output.unwrap_or(0);
+                                entry.2 += u.cached_input.unwrap_or(0);
                             }
                         }
                     }
                     "assistant.message" => {
                         if let Some(data) = event.data {
-                            trailing_fallback_output += data.output_tokens.unwrap_or(0);
+                            if let Some(tokens) = data.output_tokens {
+                                if tokens > 0 {
+                                    let model = current_model
+                                        .as_deref()
+                                        .map(|s| normalize_copilot_model(s));
+                                    *trailing_output_by_model.entry(model).or_insert(0) += tokens;
+                                }
+                            }
                         }
                     }
                     "session.model_change" => {
@@ -148,16 +162,17 @@ pub fn parse_file(path: &Path, aggregation_tz: &AggregationTz) -> Result<Vec<Fil
 
     // Include trailing segment compaction (segment still running or crashed).
     // 把尾部分段的压缩 token 也算进去。
-    total_compaction_input += seg_compaction_input;
-    total_compaction_output += seg_compaction_output;
-    total_compaction_cache_read += seg_compaction_cache_read;
+    for (model, (inp, out, cr)) in std::mem::take(&mut seg_compaction_by_model) {
+        let entry = total_compaction_by_model.entry(model).or_insert((0, 0, 0));
+        entry.0 += inp;
+        entry.1 += out;
+        entry.2 += cr;
+    }
 
     let mut daily: BTreeMap<(NaiveDate, String, String), UsageTotals> = BTreeMap::new();
     let day = session_start_time
         .map(|ts| aggregation_tz.date_for(ts))
         .unwrap_or_else(|| chrono::Utc::now().date_naive());
-
-    let has_compaction = total_compaction_input > 0 || total_compaction_output > 0;
 
     // Sum all shutdown segments.
     // 累加所有 shutdown 分段。
@@ -189,30 +204,11 @@ pub fn parse_file(path: &Path, aggregation_tz: &AggregationTz) -> Result<Vec<Fil
         }
     }
 
-    // Add trailing segment fallback (no shutdown = abnormal exit or still running).
-    // 尾部无 shutdown 分段的兜底（异常退出或仍在运行）。
-    if trailing_fallback_output > 0 {
-        let model = current_model
-            .as_deref()
-            .map(|s| normalize_copilot_model(s))
-            .unwrap_or_else(|| "unknown".to_string());
-        let totals = UsageTotals {
-            input: 0,
-            output: trailing_fallback_output,
-            reasoning: 0,
-            cache_write_5m: 0,
-            cache_write_1h: 0,
-            cache_read: 0,
-            total: trailing_fallback_output,
-        };
-        let key = (day, project.clone(), model);
-        daily.entry(key).or_default().add_assign(&totals);
-    }
-
-    // Add compaction tokens. Not tracked in any shutdown's modelMetrics.
-    // 累加压缩 token，不包含在任何 shutdown 的 modelMetrics 里。
-    if has_compaction {
-        let comp_model = current_model
+    // Resolve fallback model for events where current_model was unknown at event time.
+    // Uses current_model at end-of-file, then last shutdown's model key, then "unknown".
+    // 兜底：事件发生时模型未知的 token，按文件解析结束时的 current_model 或最后 shutdown 的模型归类。
+    let fallback_model = || -> String {
+        current_model
             .as_deref()
             .or_else(|| {
                 all_shutdown_metrics
@@ -221,19 +217,50 @@ pub fn parse_file(path: &Path, aggregation_tz: &AggregationTz) -> Result<Vec<Fil
                     .map(|s| s.as_str())
             })
             .map(|s| normalize_copilot_model(s))
-            .unwrap_or_else(|| "unknown".to_string());
-        let comp_input = total_compaction_input.saturating_sub(total_compaction_cache_read);
-        let comp_total = comp_input + total_compaction_output + total_compaction_cache_read;
+            .unwrap_or_else(|| "unknown".to_string())
+    };
+
+    // Add trailing segment fallback (no shutdown = abnormal exit or still running).
+    // Each assistant.message was attributed to the model current at event time.
+    // Events where model was unknown (None key) fall back to end-of-file model.
+    // 尾部无 shutdown 分段的兜底。每条 assistant.message 已在事件发生时按当时的 model 记录。
+    // model 未知的事件（None key）回退到文件解析结束时的 model。
+    for (model_opt, output) in &trailing_output_by_model {
+        if *output > 0 {
+            let model = model_opt.clone().unwrap_or_else(&fallback_model);
+            let totals = UsageTotals {
+                input: 0,
+                output: *output,
+                reasoning: 0,
+                cache_write_5m: 0,
+                cache_write_1h: 0,
+                cache_read: 0,
+                total: *output,
+            };
+            let key = (day, project.clone(), model);
+            daily.entry(key).or_default().add_assign(&totals);
+        }
+    }
+
+    // Add compaction tokens per model. Each compaction_complete event was attributed to the
+    // model that was current at event time. Events where model was unknown (None key) fall
+    // back to end-of-file model.
+    // 按模型累加压缩 token。每个 compaction_complete 事件在发生时已归到当时的 model 名下。
+    // model 未知的事件（None key）回退到文件解析结束时的 model。
+    for (model_opt, (comp_raw_input, comp_output, comp_cache_read)) in &total_compaction_by_model {
+        let model = model_opt.clone().unwrap_or_else(&fallback_model);
+        let comp_input = comp_raw_input.saturating_sub(*comp_cache_read);
+        let comp_total = comp_input + comp_output + comp_cache_read;
         let comp_totals = UsageTotals {
             input: comp_input,
-            output: total_compaction_output,
+            output: *comp_output,
             reasoning: 0,
             cache_write_5m: 0,
             cache_write_1h: 0,
-            cache_read: total_compaction_cache_read,
+            cache_read: *comp_cache_read,
             total: comp_total,
         };
-        let key = (day, project.clone(), comp_model);
+        let key = (day, project.clone(), model);
         daily.entry(key).or_default().add_assign(&comp_totals);
     }
 
@@ -690,5 +717,53 @@ mod tests {
         assert_eq!(rows[0].model, "opus-4-6");
         assert_eq!(rows[0].usage.output, 800); // 500 + 300
         assert_eq!(rows[0].project, "/repo/cli-session");
+    }
+
+    /// Regression: model_change between two compaction events should attribute each
+    /// compaction to the model that was active at event time, not the end-of-file model.
+    /// Same file content must always produce identical results regardless of future appends.
+    /// 回归测试：两次 compaction 之间发生 model_change，每次 compaction 应按事件时的模型归类，
+    /// 而非文件末尾的模型。相同文件内容必须始终产生相同结果。
+    #[test]
+    fn compaction_attributed_to_model_at_event_time() {
+        let path = write_temp_jsonl(&[
+            session_start("2026-03-15T10:00:00Z", "/repo/demo"),
+            model_change("claude-opus-4.6"),
+            compaction_complete(100000, 2000, 90000),
+            model_change("claude-haiku-4.5"),
+            compaction_complete(50000, 1000, 40000),
+            session_shutdown(json!({
+                "claude-haiku-4.5": {
+                    "requests": { "count": 3, "cost": 5 },
+                    "usage": {
+                        "inputTokens": 10000,
+                        "outputTokens": 500,
+                        "cacheReadTokens": 8000,
+                        "cacheWriteTokens": 0
+                    }
+                }
+            })),
+        ]);
+
+        let rows = parse_file(&path, &AggregationTz::parse(Some("UTC")).unwrap()).unwrap();
+        let _ = fs::remove_file(&path);
+
+        // Should produce 2 rows: one for opus-4-6 (compaction only) and one for haiku-4-5
+        // (shutdown metrics + compaction).
+        assert_eq!(rows.len(), 2);
+        let opus = rows.iter().find(|r| r.model == "opus-4-6").expect("opus row missing");
+        let haiku = rows.iter().find(|r| r.model == "haiku-4-5").expect("haiku row missing");
+
+        // opus compaction: input=100000-90000=10000, output=2000, cache_read=90000
+        assert_eq!(opus.usage.input, 10000);
+        assert_eq!(opus.usage.output, 2000);
+        assert_eq!(opus.usage.cache_read, 90000);
+
+        // haiku shutdown: input=10000-8000=2000, output=500, cache_read=8000
+        // haiku compaction: input=50000-40000=10000, output=1000, cache_read=40000
+        // haiku total: input=12000, output=1500, cache_read=48000
+        assert_eq!(haiku.usage.input, 12000);
+        assert_eq!(haiku.usage.output, 1500);
+        assert_eq!(haiku.usage.cache_read, 48000);
     }
 }
