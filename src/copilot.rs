@@ -120,6 +120,17 @@ pub fn parse_file(path: &Path, aggregation_tz: &AggregationTz) -> Result<Vec<Fil
                             }
                         }
                     }
+                    // Copilot CLI emits model on each tool call; use it as a fallback
+                    // when session.shutdown / session.model_change are absent.
+                    // Copilot CLI 在每次工具调用完成时带上 model 字段；当没有
+                    // session.shutdown / session.model_change 时用它做兜底。
+                    "tool.execution_complete" => {
+                        if let Some(data) = event.data {
+                            if let Some(m) = data.model {
+                                current_model = Some(m);
+                            }
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -268,6 +279,9 @@ struct CopilotEventData {
     compaction_tokens_used: Option<CompactionTokensUsed>,
     output_tokens: Option<u64>,
     new_model: Option<String>,
+    /// Model identifier from tool.execution_complete events (Copilot CLI format).
+    /// tool.execution_complete 事件中的模型标识（Copilot CLI 格式）。
+    model: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -639,5 +653,42 @@ mod tests {
             "timestamp": "2026-03-15T10:05:00Z",
             "parentId": null
         })
+    }
+
+    fn tool_execution_complete(model: &str) -> Value {
+        json!({
+            "type": "tool.execution_complete",
+            "data": {
+                "toolCallId": "test-tool-call",
+                "model": model,
+                "interactionId": "test-interaction",
+                "success": true,
+                "result": { "content": "ok" }
+            },
+            "id": "test-tool-complete-id",
+            "timestamp": "2026-03-15T10:10:00Z",
+            "parentId": null
+        })
+    }
+
+    /// Copilot CLI sessions may lack session.shutdown; model should come from
+    /// tool.execution_complete instead of falling back to "unknown".
+    /// Copilot CLI 会话可能没有 session.shutdown；模型应从 tool.execution_complete 取得，
+    /// 而非回退到 "unknown"。
+    #[test]
+    fn extracts_model_from_tool_execution_complete_without_shutdown() {
+        let path = write_temp_jsonl(&[
+            session_start("2026-03-15T10:00:00Z", "/repo/cli-session"),
+            assistant_message(500),
+            tool_execution_complete("claude-opus-4.6"),
+            assistant_message(300),
+        ]);
+
+        let rows = parse_file(&path, &AggregationTz::parse(Some("UTC")).unwrap()).unwrap();
+        let _ = fs::remove_file(&path);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].model, "opus-4-6");
+        assert_eq!(rows[0].usage.output, 800); // 500 + 300
+        assert_eq!(rows[0].project, "/repo/cli-session");
     }
 }

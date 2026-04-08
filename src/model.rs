@@ -111,7 +111,7 @@ pub struct StatsCache {
     pub files: BTreeMap<String, FileCacheEntry>,
 }
 
-pub const STATS_CACHE_VERSION: u32 = 4;
+pub const STATS_CACHE_VERSION: u32 = 5;
 
 impl Default for StatsCache {
     fn default() -> Self {
