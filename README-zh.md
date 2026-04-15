@@ -98,7 +98,16 @@ modelUsage --update        # 下载并替换当前二进制
 - 偏移快捷写法，例如 `UTC+8`、`utc+8`、`+08:00`、`-3:30`
 - `local`（默认）
 - Codex 数据源会同时包含 `~/.codex/sessions` 与 `~/.codex/archived_sessions`（目录存在时）。
-- Copilot CLI 数据来自 `~/.copilot/session-state/*/events.jsonl`（需要 Copilot CLI v0.0.422+）。
+- Copilot CLI 的已落盘统计来自 `~/.copilot/session-state/*/events.jsonl`（需要 Copilot CLI v0.0.422+）。
+- Copilot 的 `cache write` 和运行中会话用量可通过 OTel JSONL 交叉补齐。`modelUsage` 默认先读 `COPILOT_OTEL_FILE_EXPORTER_PATH`，未设置时再尝试 `~/.copilot/otel.jsonl`。
+
+推荐这样启动 Copilot CLI，以便拿到当前能拿到的最完整 Copilot 统计：
+
+```bash
+COPILOT_OTEL_FILE_EXPORTER_PATH=$HOME/.copilot/otel.jsonl copilot
+```
+
+- 当前部分 Copilot 版本虽然会把 `input/output/cache_read` 写进 OTel，但不会导出 `gen_ai.usage.cache_creation.input_tokens`，所以即使启用了 OTel，`Cache Write` 也可能仍然是 `0`。
 
 ## 更新行为
 

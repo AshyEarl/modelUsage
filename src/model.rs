@@ -99,6 +99,8 @@ pub struct FileCacheEntry {
     pub daily_rows: Vec<FileDailyRow>,
     #[serde(default)]
     pub claude_message_rows: Vec<ClaudeMessageRow>,
+    #[serde(default)]
+    pub copilot_details: Option<CopilotFileDetails>,
 }
 
 /// On-disk format for the global stats cache.
@@ -109,6 +111,21 @@ pub struct StatsCache {
     #[serde(default = "default_aggregation_tz_key")]
     pub aggregation_tz_key: String,
     pub files: BTreeMap<String, FileCacheEntry>,
+}
+
+/// Copilot file-level breakdown preserved in the stats cache so we can merge
+/// session-state rows with OTel rows without reparsing the full file.
+/// Copilot 文件级拆分结果会存进 stats cache，便于后续把 session-state 和 OTel
+/// 做字段级合并，而不是每次重新全量解析。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CopilotFileDetails {
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub shutdown_rows: Vec<FileDailyRow>,
+    #[serde(default)]
+    pub compaction_rows: Vec<FileDailyRow>,
+    #[serde(default)]
+    pub trailing_output_rows: Vec<FileDailyRow>,
 }
 
 pub const STATS_CACHE_VERSION: u32 = 5;
@@ -203,4 +220,54 @@ pub struct UpdateState {
     pub asset_name: Option<String>,
     pub asset_url: Option<String>,
     pub release_notes_summary: Option<String>,
+}
+
+/// On-disk incremental cache for Copilot OTel JSONL streams.
+/// Copilot OTel JSONL 的增量游标缓存格式。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CopilotOtelCache {
+    pub version: u32,
+    pub path: PathBuf,
+    pub offset: u64,
+    pub size: u64,
+    pub mtime_ms: u128,
+    #[serde(default)]
+    pub inode: Option<u64>,
+    #[serde(default)]
+    pub sessions: BTreeMap<String, CopilotOtelSession>,
+}
+
+pub const COPILOT_OTEL_CACHE_VERSION: u32 = 1;
+
+impl Default for CopilotOtelCache {
+    fn default() -> Self {
+        Self {
+            version: COPILOT_OTEL_CACHE_VERSION,
+            path: PathBuf::new(),
+            offset: 0,
+            size: 0,
+            mtime_ms: 0,
+            inode: None,
+            sessions: BTreeMap::new(),
+        }
+    }
+}
+
+/// OTel aggregation kept per Copilot conversation id.
+/// OTel 聚合结果按 Copilot conversation id 保存。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CopilotOtelSession {
+    pub project_hint: Option<String>,
+    pub git_root_hint: Option<String>,
+    #[serde(default)]
+    pub usage_rows: Vec<CopilotOtelUsageRow>,
+}
+
+/// Daily model totals aggregated from OTel chat spans before project resolution.
+/// OTel chat span 先按日期和模型聚合，项目归属稍后再解析。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CopilotOtelUsageRow {
+    pub date: NaiveDate,
+    pub model: String,
+    pub usage: UsageTotals,
 }

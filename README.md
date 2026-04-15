@@ -98,7 +98,16 @@ Timezone accepts:
 - offset shortcuts, e.g. `UTC+8`, `utc+8`, `+08:00`, `-3:30`
 - `local` (default)
 - Codex source roots include both `~/.codex/sessions` and `~/.codex/archived_sessions` when present.
-- Copilot CLI data is read from `~/.copilot/session-state/*/events.jsonl` (requires Copilot CLI v0.0.422+).
+- Copilot CLI settled usage is read from `~/.copilot/session-state/*/events.jsonl` (requires Copilot CLI v0.0.422+).
+- Copilot cache write and in-progress session usage can be cross-filled from OTel JSONL. By default `modelUsage` checks `COPILOT_OTEL_FILE_EXPORTER_PATH`, then falls back to `~/.copilot/otel.jsonl`.
+
+Recommended Copilot CLI startup for the best available Copilot accounting:
+
+```bash
+COPILOT_OTEL_FILE_EXPORTER_PATH=$HOME/.copilot/otel.jsonl copilot
+```
+
+- Some Copilot builds currently write `input/output/cache_read` into OTel but do not emit `gen_ai.usage.cache_creation.input_tokens`, so `Cache Write` can still remain `0` even when OTel is enabled.
 
 ## Update behavior
 

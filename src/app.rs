@@ -1,6 +1,7 @@
 use crate::cache::{
     FileChangeReason, StatsCacheLoadState, build_file_entry, file_change_reason,
-    load_stats_cache_with_state, parser_version, save_stats_cache,
+    load_copilot_otel_cache, load_stats_cache_with_state, parser_version, save_copilot_otel_cache,
+    save_stats_cache,
 };
 use crate::claude;
 use crate::cli::Cli;
@@ -23,6 +24,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use walkdir::WalkDir;
+
+const COPILOT_OTEL_ENV: &str = "COPILOT_OTEL_FILE_EXPORTER_PATH";
+const COPILOT_OTEL_STARTUP_HINT: &str =
+    "COPILOT_OTEL_FILE_EXPORTER_PATH=$HOME/.copilot/otel.jsonl copilot";
 
 #[derive(Debug, Default, Clone, Copy)]
 struct FileInvalidationStats {
@@ -74,7 +79,13 @@ pub fn run(cli: Cli) -> Result<DailyReport> {
     if debug_profile {
         profile::log(format!(
             "run start refresh={} all={} grouping={:?} tz={} include_claude={} include_codex={} include_copilot={}",
-            cli.refresh, cli.all, cli.grouping, aggregation_tz_key, include_claude, include_codex, include_copilot
+            cli.refresh,
+            cli.all,
+            cli.grouping,
+            aggregation_tz_key,
+            include_claude,
+            include_codex,
+            include_copilot
         ));
     }
 
@@ -104,6 +115,7 @@ pub fn run(cli: Cli) -> Result<DailyReport> {
 
     let mut next_files: BTreeMap<String, FileCacheEntry> = BTreeMap::new();
     let mut source_stats = Vec::new();
+    let mut copilot_otel_warnings: Vec<String> = Vec::new();
 
     if include_claude {
         let root = home_dir()
@@ -161,6 +173,46 @@ pub fn run(cli: Cli) -> Result<DailyReport> {
         cache.files.into_values().collect(),
         &aggregation_tz,
     );
+    if include_copilot {
+        match copilot::default_otel_path() {
+            Some(otel_path) if otel_path.exists() => {
+                let otel_cache = load_copilot_otel_cache()?;
+                let update = copilot::update_otel_cache(&otel_path, &aggregation_tz, otel_cache)
+                    .with_context(|| format!("failed to parse {}", otel_path.display()))?;
+                save_copilot_otel_cache(&update.cache)?;
+                if !update.cache.sessions.is_empty() {
+                    entries = copilot::merge_entries_with_otel(entries, &update.cache.sessions);
+                    copilot_otel_warnings.push(format!(
+                        "Copilot OTel is enabled. Start Copilot with `{}` to keep live usage available; in-progress usage is cross-filled from OTel, final settled totals still come from session-state, and current Copilot builds may still omit cache-write fields so Cache Write can remain 0.",
+                        COPILOT_OTEL_STARTUP_HINT
+                    ));
+                }
+                if update.saw_file && update.cache.sessions.is_empty() {
+                    copilot_otel_warnings.push(format!(
+                        "Copilot OTel file was found, but no usable chat spans were merged. Confirm `{}` points to the file used when starting Copilot.",
+                        COPILOT_OTEL_ENV
+                    ));
+                }
+                if update.invalid_records > 0 {
+                    copilot_otel_warnings.push(
+                        "Copilot OTel log contained invalid lines; skipped malformed records while merging live usage."
+                            .to_string(),
+                    );
+                }
+            }
+            _ => {
+                let has_copilot_data = entries.iter().any(|entry| {
+                    entry.source == SourceKind::Copilot && !entry.daily_rows.is_empty()
+                });
+                if has_copilot_data {
+                    copilot_otel_warnings.push(format!(
+                        "Copilot OTel log not found. Start Copilot with `{}` or set `{}` to the active OTel JSONL path; otherwise cache write and in-progress Copilot usage may be undercounted.",
+                        COPILOT_OTEL_STARTUP_HINT, COPILOT_OTEL_ENV
+                    ));
+                }
+            }
+        }
+    }
     if !cli.all {
         trim_entries_to_latest_month(&mut entries);
     }
@@ -174,6 +226,7 @@ pub fn run(cli: Cli) -> Result<DailyReport> {
                 .to_string(),
         );
     }
+    daily_report.warnings.extend(copilot_otel_warnings);
     if emit_build_stats {
         log_build_summary(
             &cache_state_brief,
@@ -248,21 +301,21 @@ fn scan_source(
             // Reparse only changed files so we do not rescan the full history on every run.
             // 文件变了才重新解析，避免每次都把历史日志全扫一遍。
             let parse_started = Instant::now();
-            let (daily_rows, claude_message_rows) = match source {
+            let (daily_rows, claude_message_rows, copilot_details) = match source {
                 SourceKind::Claude => {
                     let parsed = claude::parse_file_detailed(&path, aggregation_tz)
                         .with_context(|| format!("failed to parse {}", path.display()))?;
-                    (parsed.daily_rows, parsed.message_rows)
+                    (parsed.daily_rows, parsed.message_rows, None)
                 }
                 SourceKind::Codex => {
                     let daily_rows = codex::parse_file(&path, aggregation_tz)
                         .with_context(|| format!("failed to parse {}", path.display()))?;
-                    (daily_rows, Vec::new())
+                    (daily_rows, Vec::new(), None)
                 }
                 SourceKind::Copilot => {
-                    let daily_rows = copilot::parse_file(&path, aggregation_tz)
+                    let parsed = copilot::parse_file_detailed(&path, aggregation_tz)
                         .with_context(|| format!("failed to parse {}", path.display()))?;
-                    (daily_rows, Vec::new())
+                    (parsed.daily_rows, Vec::new(), Some(parsed.details))
                 }
             };
             let elapsed = parse_started.elapsed();
@@ -284,7 +337,14 @@ fn scan_source(
                     elapsed.as_millis()
                 ));
             }
-            build_file_entry(source, &path, &metadata, daily_rows, claude_message_rows)
+            build_file_entry(
+                source,
+                &path,
+                &metadata,
+                daily_rows,
+                claude_message_rows,
+                copilot_details,
+            )
         } else {
             reused_files += 1;
             if let Some(existing_entry) = existing {
@@ -412,6 +472,7 @@ fn dedup_claude_entries_by_session_message(
         mtime_ms: 0,
         daily_rows,
         claude_message_rows: Vec::new(),
+        copilot_details: None,
     });
     other_entries
 }
@@ -813,6 +874,7 @@ mod tests {
             mtime_ms: 1,
             daily_rows: vec![daily_row.clone()],
             claude_message_rows: vec![],
+            copilot_details: None,
         }];
 
         let deduped = dedup_claude_entries_by_session_message(entries, &tz);
@@ -842,6 +904,7 @@ mod tests {
                 mtime_ms: 1,
                 daily_rows: vec![codex_row.clone()],
                 claude_message_rows: vec![],
+                copilot_details: None,
             },
             claude_entry(
                 "/tmp/.claude/projects/demo/11111111-1111-1111-1111-111111111111/main.jsonl",
@@ -877,6 +940,7 @@ mod tests {
             mtime_ms: 1,
             daily_rows: vec![],
             claude_message_rows: rows,
+            copilot_details: None,
         }
     }
 

@@ -1,4 +1,7 @@
-use crate::model::{FileCacheEntry, PricingCache, SourceKind, StatsCache, UpdateState};
+use crate::model::{
+    CopilotFileDetails, CopilotOtelCache, FileCacheEntry, PricingCache, SourceKind, StatsCache,
+    UpdateState,
+};
 use anyhow::{Context, Result};
 use dirs::cache_dir;
 use serde::de::DeserializeOwned;
@@ -9,9 +12,10 @@ const CACHE_DIR_NAME: &str = "modelUsage";
 const STATS_FILE_NAME: &str = "stats.json";
 const PRICING_FILE_NAME: &str = "pricing.json";
 const UPDATE_FILE_NAME: &str = "update.json";
+const COPILOT_OTEL_FILE_NAME: &str = "copilot-otel.json";
 const CLAUDE_PARSER_VERSION: u32 = 3;
 const CODEX_PARSER_VERSION: u32 = 2;
-const COPILOT_PARSER_VERSION: u32 = 4;
+const COPILOT_PARSER_VERSION: u32 = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StatsCacheLoadState {
@@ -69,6 +73,10 @@ pub fn update_state_path() -> Result<PathBuf> {
     Ok(cache_dir_path()?.join(UPDATE_FILE_NAME))
 }
 
+pub fn copilot_otel_cache_path() -> Result<PathBuf> {
+    Ok(cache_dir_path()?.join(COPILOT_OTEL_FILE_NAME))
+}
+
 pub fn load_stats_cache_with_state(expected_tz_key: &str) -> Result<StatsCacheLoadResult> {
     let cache = load_json(stats_cache_path()?.as_path())?;
     let (cache, state) = normalize_stats_cache(cache, expected_tz_key);
@@ -93,6 +101,15 @@ pub fn load_update_state() -> Result<UpdateState> {
 
 pub fn save_update_state(state: &UpdateState) -> Result<()> {
     save_json(update_state_path()?.as_path(), state)
+}
+
+pub fn load_copilot_otel_cache() -> Result<CopilotOtelCache> {
+    let cache = load_json(copilot_otel_cache_path()?.as_path())?;
+    Ok(normalize_copilot_otel_cache(cache))
+}
+
+pub fn save_copilot_otel_cache(cache: &CopilotOtelCache) -> Result<()> {
+    save_json(copilot_otel_cache_path()?.as_path(), cache)
 }
 
 pub fn file_change_reason(
@@ -127,6 +144,7 @@ pub fn build_file_entry(
     metadata: &fs::Metadata,
     daily_rows: Vec<crate::model::FileDailyRow>,
     claude_message_rows: Vec<crate::model::ClaudeMessageRow>,
+    copilot_details: Option<CopilotFileDetails>,
 ) -> FileCacheEntry {
     FileCacheEntry {
         source,
@@ -136,6 +154,7 @@ pub fn build_file_entry(
         mtime_ms: file_mtime_ms(metadata).unwrap_or_default(),
         daily_rows,
         claude_message_rows,
+        copilot_details,
     }
 }
 
@@ -211,6 +230,16 @@ fn normalize_stats_cache(
     (cache, StatsCacheLoadState::Hit { cached_files })
 }
 
+fn normalize_copilot_otel_cache(cache: Option<CopilotOtelCache>) -> CopilotOtelCache {
+    let Some(cache) = cache else {
+        return CopilotOtelCache::default();
+    };
+    if cache.version != crate::model::COPILOT_OTEL_CACHE_VERSION {
+        return CopilotOtelCache::default();
+    }
+    cache
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -236,6 +265,7 @@ mod tests {
                 mtime_ms: 1,
                 daily_rows: vec![],
                 claude_message_rows: vec![],
+                copilot_details: None,
             },
         );
         let cache = StatsCache {
@@ -270,6 +300,7 @@ mod tests {
                 mtime_ms: 1,
                 daily_rows: vec![],
                 claude_message_rows: vec![],
+                copilot_details: None,
             },
         );
         let cache = StatsCache {
@@ -324,6 +355,7 @@ mod tests {
             mtime_ms: super::file_mtime_ms(&metadata).unwrap(),
             daily_rows: vec![],
             claude_message_rows: vec![],
+            copilot_details: None,
         };
 
         assert_eq!(
@@ -346,6 +378,7 @@ mod tests {
             mtime_ms: super::file_mtime_ms(&metadata).unwrap(),
             daily_rows: vec![],
             claude_message_rows: vec![],
+            copilot_details: None,
         };
 
         assert_eq!(
