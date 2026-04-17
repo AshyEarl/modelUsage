@@ -148,4 +148,23 @@ mod tests {
             assert!(prices.models.contains_key(model), "missing model: {model}");
         }
     }
+
+    #[test]
+    fn has_current_claude_4x_models_and_cache_1h_prices() {
+        let prices = load_bundled_prices().unwrap();
+        for (model, expected_1h) in [
+            ("haiku-4-5", 2.0),
+            ("sonnet-4-5", 6.0),
+            ("sonnet-4-6", 6.0),
+            ("opus-4-5", 10.0),
+            ("opus-4-6", 10.0),
+            ("opus-4-7", 10.0),
+        ] {
+            let price = prices
+                .models
+                .get(model)
+                .unwrap_or_else(|| panic!("missing model: {model}"));
+            assert_eq!(price.cache_write_1h_cost_per_mtoken, Some(expected_1h));
+        }
+    }
 }

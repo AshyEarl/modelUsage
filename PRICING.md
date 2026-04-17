@@ -53,7 +53,12 @@ Notes:
 - I did not find a stable public official pricing API
 - pricing is therefore maintained by manually checking the official pages
 
-Anthropic / Claude prices are also maintained from official published pricing.
+As of **2026-04-17**, Anthropic / Claude pricing was manually verified from:
+
+- Claude API pricing  
+  https://platform.claude.com/docs/en/about-claude/pricing
+- Claude plans & pricing  
+  https://claude.com/pricing
 
 ## Models currently covered
 
@@ -64,6 +69,7 @@ Anthropic / Claude prices are also maintained from official published pricing.
 - `sonnet-4-6`
 - `opus-4-5`
 - `opus-4-6`
+- `opus-4-7`
 
 ### OpenAI / Codex
 
@@ -88,7 +94,7 @@ Structure:
 ```json
 {
   "version": 1,
-  "updated_at": "2026-03-20T00:00:00Z",
+  "updated_at": "2026-04-17T00:00:00Z",
   "models": {
     "gpt-5.2-codex": {
       "input_cost_per_mtoken": 1.75,

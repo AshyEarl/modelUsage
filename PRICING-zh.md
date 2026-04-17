@@ -53,7 +53,12 @@
 - 但我没有查到稳定公开的官方价格 API
 - 所以这里采用“人工核对官方页面后维护本地价格表”的方式
 
-Anthropic / Claude 的价格也按官方公开价格维护。
+截至 **2026-04-17**，Anthropic / Claude 价格是人工从官方页面核对后写入的：
+
+- Claude API pricing  
+  https://platform.claude.com/docs/en/about-claude/pricing
+- Claude plans & pricing  
+  https://claude.com/pricing
 
 ## 当前已覆盖模型
 
@@ -64,6 +69,7 @@ Anthropic / Claude 的价格也按官方公开价格维护。
 - `sonnet-4-6`
 - `opus-4-5`
 - `opus-4-6`
+- `opus-4-7`
 
 ### OpenAI / Codex
 
@@ -88,7 +94,7 @@ Anthropic / Claude 的价格也按官方公开价格维护。
 ```json
 {
   "version": 1,
-  "updated_at": "2026-03-20T00:00:00Z",
+  "updated_at": "2026-04-17T00:00:00Z",
   "models": {
     "gpt-5.2-codex": {
       "input_cost_per_mtoken": 1.75,
