@@ -61,6 +61,13 @@ pub fn parse_file_detailed(
     let mut seg_compaction_by_model: BTreeMap<Option<String>, (u64, u64, u64)> = BTreeMap::new();
     let mut total_compaction_by_model: BTreeMap<Option<String>, (u64, u64, u64)> = BTreeMap::new();
 
+    // Sub-agent tokens tracked per-segment per-model; reset after each shutdown
+    // (shutdown modelMetrics already includes sub-agent usage).
+    // 子 agent token 按分段按模型跟踪；shutdown 后重置
+    //（shutdown 的 modelMetrics 已包含子 agent 用量）。
+    let mut seg_subagent_by_model: BTreeMap<Option<String>, u64> = BTreeMap::new();
+    let mut total_subagent_by_model: BTreeMap<Option<String>, u64> = BTreeMap::new();
+
     // Fallback output for the trailing segment without shutdown (abnormal exit / still running).
     // 尾部没有 shutdown 的分段只保留 assistant.message 的 output 兜底。
     let mut trailing_output_by_model: BTreeMap<Option<String>, u64> = BTreeMap::new();
@@ -125,6 +132,11 @@ pub fn parse_file_detailed(
                                 entry.1 += out;
                                 entry.2 += cr;
                             }
+                            // Shutdown modelMetrics already includes sub-agent usage;
+                            // just clear the segment tracker so trailing segment starts clean.
+                            // shutdown 的 modelMetrics 已含子 agent 用量，
+                            // 直接清零即可，不需要归档（避免重复计数）。
+                            seg_subagent_by_model.clear();
                             trailing_output_by_model.clear();
                         }
                     }
@@ -171,6 +183,18 @@ pub fn parse_file_detailed(
                             }
                         }
                     }
+                    "subagent.completed" => {
+                        if let Some(data) = event.data {
+                            if let (Some(model_raw), Some(tokens)) =
+                                (data.model, data.total_tokens)
+                            {
+                                if tokens > 0 {
+                                    let model = Some(normalize_copilot_model(&model_raw));
+                                    *seg_subagent_by_model.entry(model).or_insert(0) += tokens;
+                                }
+                            }
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -191,6 +215,12 @@ pub fn parse_file_detailed(
         entry.0 += inp;
         entry.1 += out;
         entry.2 += cr;
+    }
+
+    // Fold any remaining sub-agent tokens from the trailing (un-shut-down) segment.
+    // 把尾部未 shutdown 的分段中剩余的子 agent token 归入总计。
+    for (model, tokens) in std::mem::take(&mut seg_subagent_by_model) {
+        *total_subagent_by_model.entry(model).or_insert(0) += tokens;
     }
 
     let day = session_start_time
@@ -281,9 +311,37 @@ pub fn parse_file_detailed(
     let compaction_rows = rows_from_usage_map(compaction_daily.clone());
     let trailing_rows = rows_from_usage_map(trailing_daily.clone());
 
+    // Sub-agent tokens from subagent.completed events. Only trailing (un-shut-down) segments
+    // contribute here; segments with shutdown already include sub-agent usage in modelMetrics,
+    // so their seg_subagent_by_model was cleared (not folded) to prevent double-counting.
+    // 子 agent token 来自 subagent.completed 事件。仅尾部未 shutdown 分段的数据会被计入；
+    // 已 shutdown 的分段在 modelMetrics 中已含子 agent 用量，其 seg 被直接清零（不归档）以防重复计数。
+    let mut subagent_daily: BTreeMap<(NaiveDate, String, String), UsageTotals> = BTreeMap::new();
+    for (model_opt, tokens) in &total_subagent_by_model {
+        if *tokens == 0 {
+            continue;
+        }
+        let model = model_opt.clone().unwrap_or_else(&fallback_model);
+        // totalTokens = raw_input + output with no breakdown; attribute as input (~97% accurate).
+        // totalTokens = raw_input + output，无法拆分；归为 input（约 97% 准确）。
+        let totals = UsageTotals {
+            input: *tokens,
+            output: 0,
+            reasoning: 0,
+            cache_write_5m: 0,
+            cache_write_1h: 0,
+            cache_read: 0,
+            total: *tokens,
+        };
+        let key = (day, project.clone(), model);
+        subagent_daily.entry(key).or_default().add_assign(&totals);
+    }
+    let subagent_rows = rows_from_usage_map(subagent_daily.clone());
+
     let mut final_daily = shutdown_daily;
     add_usage_maps(&mut final_daily, &compaction_daily);
     add_usage_maps(&mut final_daily, &trailing_daily);
+    add_usage_maps(&mut final_daily, &subagent_daily);
 
     if profile_enabled {
         profile::log(format!(
@@ -303,6 +361,7 @@ pub fn parse_file_detailed(
             shutdown_rows,
             compaction_rows,
             trailing_output_rows: trailing_rows,
+            subagent_rows,
         },
     })
 }
@@ -521,15 +580,24 @@ fn merge_daily_rows_with_otel(
 
     let shutdown_rows = canonicalize_rows(&details.shutdown_rows, preferred_date, &project);
     let compaction_rows = canonicalize_rows(&details.compaction_rows, preferred_date, &project);
+    let subagent_rows = canonicalize_rows(&details.subagent_rows, preferred_date, &project);
 
     let shutdown_map = rows_to_usage_map(&shutdown_rows, true);
+    // Include subagent_rows in the delta base: OTel chat spans already contain sub-agent calls,
+    // so we must subtract them to avoid double-counting.
+    // 将 subagent_rows 纳入 delta 基准：OTel 的 chat span 已包含子 agent 调用，
+    // 必须在计算差值时扣除，防止重复计数。
+    let mut base_for_delta = shutdown_map.clone();
+    add_usage_maps(&mut base_for_delta, &rows_to_usage_map(&subagent_rows, false));
+
     let mut merged_map = rows_to_usage_map(&shutdown_rows, true);
     add_usage_maps(&mut merged_map, &rows_to_usage_map(&compaction_rows, false));
+    add_usage_maps(&mut merged_map, &rows_to_usage_map(&subagent_rows, false));
 
     let otel_map = rows_to_usage_map(&otel_rows, false);
     for (key, otel_usage) in otel_map {
-        let shutdown_usage = shutdown_map.get(&key).cloned().unwrap_or_default();
-        let delta = otel_delta_against_shutdown(&otel_usage, &shutdown_usage);
+        let base_usage = base_for_delta.get(&key).cloned().unwrap_or_default();
+        let delta = otel_delta_against_shutdown(&otel_usage, &base_usage);
         merged_map.entry(key).or_default().add_assign(&delta);
     }
 
@@ -795,6 +863,9 @@ struct CopilotEventData {
     /// Model identifier from tool.execution_complete events (Copilot CLI format).
     /// tool.execution_complete 事件中的模型标识（Copilot CLI 格式）。
     model: Option<String>,
+    /// Total tokens consumed by a sub-agent (from subagent.completed events).
+    /// 子 agent 消耗的总 token 数（来自 subagent.completed 事件）。
+    total_tokens: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1148,6 +1219,7 @@ mod tests {
                     "opus-4-6",
                     usage(0, 999, 0, 0),
                 )],
+                subagent_rows: vec![],
             }),
         };
         let mut otel_sessions = BTreeMap::new();
@@ -1178,6 +1250,100 @@ mod tests {
         assert_eq!(merged[0].daily_rows[0].usage.output, 2350);
         assert_eq!(merged[0].daily_rows[0].usage.cache_read, 50000);
         assert_eq!(merged[0].daily_rows[0].usage.cache_write_5m, 700);
+    }
+
+    #[test]
+    fn otel_merge_does_not_double_count_subagent_tokens() {
+        // When OTel has chat spans for the sub-agent model AND session-state has
+        // subagent_rows for the same model, the merge should NOT double-count.
+        // 当 OTel 有子 agent 模型的 chat span 且 session-state 有同模型的 subagent_rows 时，
+        // 合并不应重复计数。
+        let entry = FileCacheEntry {
+            source: SourceKind::Copilot,
+            parser_version: parser_version(SourceKind::Copilot),
+            path: PathBuf::from(
+                "/tmp/.copilot/session-state/aabb1122-0000-0000-0000-000000000000/events.jsonl",
+            ),
+            size: 1,
+            mtime_ms: 1,
+            daily_rows: vec![
+                // Trailing opus output
+                daily_row("2026-04-13", "/repo/demo", "opus-4-6", usage(0, 500, 0, 0)),
+                // Subagent haiku tokens
+                daily_row(
+                    "2026-04-13",
+                    "/repo/demo",
+                    "haiku-4-5",
+                    usage(150000, 0, 0, 0),
+                ),
+            ],
+            claude_message_rows: vec![],
+            copilot_details: Some(CopilotFileDetails {
+                session_id: Some("aabb1122-0000-0000-0000-000000000000".to_string()),
+                shutdown_rows: vec![],
+                compaction_rows: vec![],
+                trailing_output_rows: vec![daily_row(
+                    "2026-04-13",
+                    "/repo/demo",
+                    "opus-4-6",
+                    usage(0, 500, 0, 0),
+                )],
+                subagent_rows: vec![daily_row(
+                    "2026-04-13",
+                    "/repo/demo",
+                    "haiku-4-5",
+                    usage(150000, 0, 0, 0),
+                )],
+            }),
+        };
+        let mut otel_sessions = BTreeMap::new();
+        otel_sessions.insert(
+            "aabb1122-0000-0000-0000-000000000000".to_string(),
+            CopilotOtelSession {
+                project_hint: Some("/repo/demo".to_string()),
+                git_root_hint: None,
+                usage_rows: vec![
+                    crate::model::CopilotOtelUsageRow {
+                        date: chrono::NaiveDate::from_ymd_opt(2026, 4, 13).unwrap(),
+                        model: "opus-4-6".to_string(),
+                        usage: UsageTotals {
+                            input: 200000,
+                            output: 5000,
+                            cache_read: 100000,
+                            cache_write_5m: 1000,
+                            total: 306000,
+                            ..UsageTotals::default()
+                        },
+                    },
+                    // OTel also reports haiku sub-agent chat spans (v1.0.32 style)
+                    crate::model::CopilotOtelUsageRow {
+                        date: chrono::NaiveDate::from_ymd_opt(2026, 4, 13).unwrap(),
+                        model: "haiku-4-5".to_string(),
+                        usage: UsageTotals {
+                            input: 150000,
+                            output: 3000,
+                            cache_read: 0,
+                            cache_write_5m: 0,
+                            total: 153000,
+                            ..UsageTotals::default()
+                        },
+                    },
+                ],
+            },
+        );
+
+        let merged = merge_entries_with_otel(vec![entry], &otel_sessions);
+        assert_eq!(merged.len(), 1);
+        let haiku_row = merged[0]
+            .daily_rows
+            .iter()
+            .find(|r| r.model == "haiku-4-5")
+            .expect("should have haiku row");
+        // Subagent_rows has input=150000, OTel has input=150000.
+        // Delta = 150000 - 150000 = 0, so final = 150000 (NOT 300000).
+        assert_eq!(haiku_row.usage.input, 150000);
+        // OTel output (3000) is a delta beyond subagent_rows (0), so it adds.
+        assert_eq!(haiku_row.usage.output, 3000);
     }
 
     #[test]
@@ -1356,5 +1522,146 @@ mod tests {
             "status": { "code": 0 }
         })
         .to_string()
+    }
+
+    fn subagent_completed(model: Option<&str>, total_tokens: Option<u64>) -> Value {
+        json!({
+            "type": "subagent.completed",
+            "data": {
+                "agentName": "explore",
+                "model": model,
+                "totalTokens": total_tokens,
+                "durationMs": 5000
+            },
+            "id": "test-subagent-id",
+            "timestamp": "2026-03-15T10:20:00Z",
+            "parentId": null
+        })
+    }
+
+    #[test]
+    fn subagent_tokens_counted_without_shutdown() {
+        // Without a session.shutdown, sub-agent tokens should appear in the output.
+        // 没有 shutdown 时，子 agent token 应该出现在输出中。
+        let path = write_temp_jsonl(&[
+            session_start(
+                "2026-03-15T10:00:00Z",
+                "/repo/demo",
+                Some("00dbb9de-51b2-427c-ad63-ead04dff8e6a"),
+            ),
+            model_change("claude-opus-4.6"),
+            subagent_completed(Some("claude-haiku-4.5"), Some(100000)),
+            subagent_completed(Some("claude-haiku-4.5"), Some(50000)),
+            assistant_message(500),
+        ]);
+
+        let result =
+            parse_file_detailed(&path, &AggregationTz::parse(Some("UTC")).unwrap()).unwrap();
+        let _ = fs::remove_file(&path);
+
+        // Should have rows for both haiku (subagent) and opus (trailing output)
+        assert!(result.daily_rows.len() >= 2);
+        let haiku_row = result
+            .daily_rows
+            .iter()
+            .find(|r| r.model == "haiku-4-5")
+            .expect("should have haiku row from subagent");
+        assert_eq!(haiku_row.usage.input, 150000);
+        assert_eq!(haiku_row.usage.total, 150000);
+
+        // subagent_rows in details should also be populated
+        let haiku_detail = result
+            .details
+            .subagent_rows
+            .iter()
+            .find(|r| r.model == "haiku-4-5")
+            .expect("should have haiku in subagent_rows");
+        assert_eq!(haiku_detail.usage.input, 150000);
+    }
+
+    #[test]
+    fn subagent_tokens_not_double_counted_with_shutdown() {
+        // With a shutdown, sub-agent tokens are already in modelMetrics.
+        // The subagent_completed tokens should NOT be added again.
+        // shutdown 后，子 agent token 已包含在 modelMetrics 中，不应重复计入。
+        let path = write_temp_jsonl(&[
+            session_start(
+                "2026-03-15T10:00:00Z",
+                "/repo/demo",
+                Some("00dbb9de-51b2-427c-ad63-ead04dff8e6a"),
+            ),
+            model_change("claude-opus-4.6"),
+            subagent_completed(Some("claude-haiku-4.5"), Some(100000)),
+            session_shutdown(json!({
+                "claude-opus-4.6": {
+                    "requests": { "count": 5, "cost": 10 },
+                    "usage": {
+                        "inputTokens": 50000,
+                        "outputTokens": 2000,
+                        "cacheReadTokens": 40000,
+                        "cacheWriteTokens": 5000
+                    }
+                },
+                "claude-haiku-4.5": {
+                    "requests": { "count": 2, "cost": 1 },
+                    "usage": {
+                        "inputTokens": 100000,
+                        "outputTokens": 3000,
+                        "cacheReadTokens": 0,
+                        "cacheWriteTokens": 0
+                    }
+                }
+            })),
+        ]);
+
+        let result =
+            parse_file_detailed(&path, &AggregationTz::parse(Some("UTC")).unwrap()).unwrap();
+        let _ = fs::remove_file(&path);
+
+        // Haiku row should only have shutdown values, not subagent on top
+        let haiku_row = result
+            .daily_rows
+            .iter()
+            .find(|r| r.model == "haiku-4-5")
+            .expect("should have haiku row from shutdown");
+        assert_eq!(haiku_row.usage.input, 100000); // from shutdown only
+        assert_eq!(haiku_row.usage.output, 3000);
+
+        // subagent_rows should be empty (shutdown segment was cleared, not folded)
+        assert!(
+            result.details.subagent_rows.is_empty(),
+            "subagent_rows should be empty when shutdown covers the tokens"
+        );
+    }
+
+    #[test]
+    fn subagent_completed_with_null_fields_skipped() {
+        // subagent.completed with null model/totalTokens should be gracefully skipped.
+        // model/totalTokens 为 null 的 subagent.completed 应被安全跳过。
+        let path = write_temp_jsonl(&[
+            session_start(
+                "2026-03-15T10:00:00Z",
+                "/repo/demo",
+                Some("00dbb9de-51b2-427c-ad63-ead04dff8e6a"),
+            ),
+            model_change("claude-opus-4.6"),
+            subagent_completed(None, None),
+            subagent_completed(Some("claude-haiku-4.5"), None),
+            subagent_completed(None, Some(50000)),
+            assistant_message(500),
+        ]);
+
+        let result =
+            parse_file_detailed(&path, &AggregationTz::parse(Some("UTC")).unwrap()).unwrap();
+        let _ = fs::remove_file(&path);
+
+        // Only the trailing output row for opus should exist; no subagent rows
+        // because all subagent.completed events had null model or totalTokens
+        assert!(
+            result.details.subagent_rows.is_empty(),
+            "subagent_rows should be empty when events have null model or totalTokens"
+        );
+        // Should still have the trailing output row
+        assert!(!result.daily_rows.is_empty());
     }
 }

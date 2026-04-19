@@ -126,9 +126,11 @@ pub struct CopilotFileDetails {
     pub compaction_rows: Vec<FileDailyRow>,
     #[serde(default)]
     pub trailing_output_rows: Vec<FileDailyRow>,
+    #[serde(default)]
+    pub subagent_rows: Vec<FileDailyRow>,
 }
 
-pub const STATS_CACHE_VERSION: u32 = 5;
+pub const STATS_CACHE_VERSION: u32 = 6;
 
 impl Default for StatsCache {
     fn default() -> Self {
