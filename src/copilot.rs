@@ -580,19 +580,22 @@ fn merge_daily_rows_with_otel(
 
     let shutdown_rows = canonicalize_rows(&details.shutdown_rows, preferred_date, &project);
     let compaction_rows = canonicalize_rows(&details.compaction_rows, preferred_date, &project);
-    let subagent_rows = canonicalize_rows(&details.subagent_rows, preferred_date, &project);
 
     let shutdown_map = rows_to_usage_map(&shutdown_rows, true);
-    // Include subagent_rows in the delta base: OTel chat spans already contain sub-agent calls,
-    // so we must subtract them to avoid double-counting.
-    // 将 subagent_rows 纳入 delta 基准：OTel 的 chat span 已包含子 agent 调用，
-    // 必须在计算差值时扣除，防止重复计数。
-    let mut base_for_delta = shutdown_map.clone();
-    add_usage_maps(&mut base_for_delta, &rows_to_usage_map(&subagent_rows, false));
+    // When OTel is available, it already records every chat span (including sub-agent
+    // child calls, whose response.model may differ from the parent's). Adding
+    // subagent_rows on top of the OTel delta double-counts sub-agent usage, because
+    // subagent.completed.totalTokens is attributed entirely to `input` while the
+    // corresponding OTel spans split the tokens across input/output/cache_read, so the
+    // per-field saturating subtraction in otel_delta_against_shutdown cannot cancel it.
+    // OTel 会记录所有 chat span（包括子 agent 的调用，其 response.model 可能与父级不同）。
+    // 此时若再把 subagent_rows 叠加到 OTel delta 上就会重复计数：subagent.completed.totalTokens
+    // 全部归入 input 字段，而 OTel 把这些 token 拆成 input/output/cache_read 分别记录，
+    // 按字段 saturating_sub 无法抵消其中的 cache_read/output 部分。
+    let base_for_delta = shutdown_map.clone();
 
     let mut merged_map = rows_to_usage_map(&shutdown_rows, true);
     add_usage_maps(&mut merged_map, &rows_to_usage_map(&compaction_rows, false));
-    add_usage_maps(&mut merged_map, &rows_to_usage_map(&subagent_rows, false));
 
     let otel_map = rows_to_usage_map(&otel_rows, false);
     for (key, otel_usage) in otel_map {
@@ -1344,6 +1347,104 @@ mod tests {
         assert_eq!(haiku_row.usage.input, 150000);
         // OTel output (3000) is a delta beyond subagent_rows (0), so it adds.
         assert_eq!(haiku_row.usage.output, 3000);
+    }
+
+    #[test]
+    fn otel_merge_skips_subagent_rows_with_mismatched_attribution() {
+        // Real-world case (Copilot 1.0.31): subagent.completed.totalTokens is attributed
+        // entirely to `input` on the parent's model (e.g. opus), while OTel logs the same
+        // sub-agent chat spans with a proper input/output/cache_read split against the
+        // sub-agent's own response.model (e.g. haiku). Per-field saturating_sub cannot
+        // cancel the overlap, so subagent_rows MUST be dropped when OTel is merged.
+        // 真实场景（Copilot 1.0.31）：subagent.completed.totalTokens 全部按父级模型（例如 opus）
+        // 计入 input；而 OTel 会按子 agent 自身的 response.model（例如 haiku）记录同一批调用，
+        // 并正确拆分为 input/output/cache_read。按字段 saturating_sub 无法抵消，因此在合并
+        // OTel 时必须丢弃 subagent_rows，避免重复计数。
+        let entry = FileCacheEntry {
+            source: SourceKind::Copilot,
+            parser_version: parser_version(SourceKind::Copilot),
+            path: PathBuf::from(
+                "/tmp/.copilot/session-state/ccdd3344-0000-0000-0000-000000000000/events.jsonl",
+            ),
+            size: 1,
+            mtime_ms: 1,
+            daily_rows: vec![daily_row(
+                "2026-04-17",
+                "/repo/demo",
+                "opus-4-7",
+                usage(60_000_000, 0, 0, 0),
+            )],
+            claude_message_rows: vec![],
+            copilot_details: Some(CopilotFileDetails {
+                session_id: Some("ccdd3344-0000-0000-0000-000000000000".to_string()),
+                shutdown_rows: vec![],
+                compaction_rows: vec![],
+                trailing_output_rows: vec![],
+                subagent_rows: vec![daily_row(
+                    "2026-04-17",
+                    "/repo/demo",
+                    "opus-4-7",
+                    usage(60_000_000, 0, 0, 0),
+                )],
+            }),
+        };
+        let mut otel_sessions = BTreeMap::new();
+        otel_sessions.insert(
+            "ccdd3344-0000-0000-0000-000000000000".to_string(),
+            CopilotOtelSession {
+                project_hint: Some("/repo/demo".to_string()),
+                git_root_hint: None,
+                usage_rows: vec![
+                    // Main-agent + sub-agent chat spans rolled up under opus.
+                    crate::model::CopilotOtelUsageRow {
+                        date: chrono::NaiveDate::from_ymd_opt(2026, 4, 17).unwrap(),
+                        model: "opus-4-7".to_string(),
+                        usage: UsageTotals {
+                            input: 6_842_995,
+                            output: 1_025_242,
+                            cache_read: 117_078_528,
+                            cache_write_5m: 0,
+                            total: 124_946_765,
+                            ..UsageTotals::default()
+                        },
+                    },
+                    // One sub-agent (explore) actually ran on haiku; OTel reports it under haiku.
+                    crate::model::CopilotOtelUsageRow {
+                        date: chrono::NaiveDate::from_ymd_opt(2026, 4, 17).unwrap(),
+                        model: "haiku-4-5".to_string(),
+                        usage: UsageTotals {
+                            input: 67_740,
+                            output: 11_062,
+                            cache_read: 1_773_614,
+                            cache_write_5m: 0,
+                            total: 1_852_416,
+                            ..UsageTotals::default()
+                        },
+                    },
+                ],
+            },
+        );
+
+        let merged = merge_entries_with_otel(vec![entry], &otel_sessions);
+        assert_eq!(merged.len(), 1);
+        let opus = merged[0]
+            .daily_rows
+            .iter()
+            .find(|r| r.model == "opus-4-7")
+            .expect("should have opus row");
+        let haiku = merged[0]
+            .daily_rows
+            .iter()
+            .find(|r| r.model == "haiku-4-5")
+            .expect("should have haiku row");
+
+        // Result should equal the OTel truth only (no subagent add-on).
+        // 结果应当只等于 OTel 的真实记录，不再重复叠加 subagent_rows。
+        assert_eq!(opus.usage.input, 6_842_995);
+        assert_eq!(opus.usage.output, 1_025_242);
+        assert_eq!(opus.usage.cache_read, 117_078_528);
+        assert_eq!(haiku.usage.input, 67_740);
+        assert_eq!(haiku.usage.cache_read, 1_773_614);
     }
 
     #[test]
