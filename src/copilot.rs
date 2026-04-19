@@ -339,7 +339,14 @@ pub fn parse_file_detailed(
     let subagent_rows = rows_from_usage_map(subagent_daily.clone());
 
     let mut final_daily = shutdown_daily;
-    add_usage_maps(&mut final_daily, &compaction_daily);
+    // Shutdown modelMetrics already includes compaction tokens (empirically verified on
+    // session 2c862578: OTel == shutdown even with 8 compaction events). Adding
+    // compaction_daily on top would double-count. compaction_rows is still exported in
+    // CopilotFileDetails for audit/debugging.
+    // shutdown 的 modelMetrics 已经把 compaction 的 token 包含在内（在 2c862578 会话上
+    // 实测：即使发生了 8 次 compaction，OTel 总量仍然与 shutdown 完全一致）。
+    // 再叠加 compaction_daily 就会重复计数；compaction_rows 仍保留在 CopilotFileDetails
+    // 中以供审计调试。
     add_usage_maps(&mut final_daily, &trailing_daily);
     add_usage_maps(&mut final_daily, &subagent_daily);
 
@@ -579,23 +586,22 @@ fn merge_daily_rows_with_otel(
     }
 
     let shutdown_rows = canonicalize_rows(&details.shutdown_rows, preferred_date, &project);
-    let compaction_rows = canonicalize_rows(&details.compaction_rows, preferred_date, &project);
+    let _compaction_rows = canonicalize_rows(&details.compaction_rows, preferred_date, &project);
 
     let shutdown_map = rows_to_usage_map(&shutdown_rows, true);
     // When OTel is available, it already records every chat span (including sub-agent
-    // child calls, whose response.model may differ from the parent's). Adding
-    // subagent_rows on top of the OTel delta double-counts sub-agent usage, because
-    // subagent.completed.totalTokens is attributed entirely to `input` while the
-    // corresponding OTel spans split the tokens across input/output/cache_read, so the
-    // per-field saturating subtraction in otel_delta_against_shutdown cannot cancel it.
-    // OTel 会记录所有 chat span（包括子 agent 的调用，其 response.model 可能与父级不同）。
-    // 此时若再把 subagent_rows 叠加到 OTel delta 上就会重复计数：subagent.completed.totalTokens
-    // 全部归入 input 字段，而 OTel 把这些 token 拆成 input/output/cache_read 分别记录，
-    // 按字段 saturating_sub 无法抵消其中的 cache_read/output 部分。
+    // child calls and compaction chats). Adding subagent_rows or compaction_rows on top
+    // of the OTel delta double-counts: empirically (session 2c862578) OTel == shutdown
+    // exactly even with active compaction and sub-agent events, and subagent.completed
+    // totalTokens is attributed entirely to `input` which per-field saturating_sub
+    // cannot dedupe against OTel's input/output/cache_read split.
+    // OTel 已记录所有 chat span（包括子 agent 和 compaction 的调用）。再叠加 subagent_rows
+    // 或 compaction_rows 都会重复计数：在 2c862578 会话中实测 OTel 与 shutdown 完全一致；
+    // 而 subagent.completed.totalTokens 全部计入 input 字段，按字段 saturating_sub 无法与
+    // OTel 的 input/output/cache_read 拆分口径抵消。
     let base_for_delta = shutdown_map.clone();
 
     let mut merged_map = rows_to_usage_map(&shutdown_rows, true);
-    add_usage_maps(&mut merged_map, &rows_to_usage_map(&compaction_rows, false));
 
     let otel_map = rows_to_usage_map(&otel_rows, false);
     for (key, otel_usage) in otel_map {
@@ -990,7 +996,7 @@ mod tests {
     }
 
     #[test]
-    fn adds_compaction_tokens_to_shutdown_metrics() {
+    fn shutdown_metrics_already_include_compaction_no_double_count() {
         let path = write_temp_jsonl(&[
             session_start("2026-03-15T10:00:00Z", "/repo/demo", None),
             compaction_complete(120000, 3000, 110000),
@@ -1010,9 +1016,13 @@ mod tests {
         let rows = parse_file(&path, &AggregationTz::parse(Some("UTC")).unwrap()).unwrap();
         let _ = fs::remove_file(&path);
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].usage.input, 30000);
-        assert_eq!(rows[0].usage.output, 11000);
-        assert_eq!(rows[0].usage.cache_read, 290000);
+        // Shutdown modelMetrics already includes compaction usage (empirically verified
+        // on session 2c862578). Therefore compaction_rows MUST NOT be added on top.
+        // shutdown.modelMetrics 已经包含 compaction 用量（在 2c862578 会话上实测验证），
+        // 因此不能再叠加 compaction_rows。
+        assert_eq!(rows[0].usage.input, 20000);
+        assert_eq!(rows[0].usage.output, 8000);
+        assert_eq!(rows[0].usage.cache_read, 180000);
     }
 
     #[test]
@@ -1249,9 +1259,15 @@ mod tests {
         let merged = merge_entries_with_otel(vec![entry], &otel_sessions);
         assert_eq!(merged.len(), 1);
         assert_eq!(merged[0].daily_rows.len(), 1);
-        assert_eq!(merged[0].daily_rows[0].usage.input, 14000);
-        assert_eq!(merged[0].daily_rows[0].usage.output, 2350);
-        assert_eq!(merged[0].daily_rows[0].usage.cache_read, 50000);
+        // OTel is the source of truth when available; shutdown_map provides the base
+        // and the delta (otel - shutdown) adds only the portion not yet in shutdown.
+        // Compaction is already part of shutdown modelMetrics, so compaction_rows is
+        // NOT added on top.
+        // 当存在 OTel 时，OTel 为真值：以 shutdown_map 为基准，只叠加 (otel - shutdown) 的增量。
+        // compaction 已包含在 shutdown modelMetrics 中，因此不再叠加 compaction_rows。
+        assert_eq!(merged[0].daily_rows[0].usage.input, 13000);
+        assert_eq!(merged[0].daily_rows[0].usage.output, 2300);
+        assert_eq!(merged[0].daily_rows[0].usage.cache_read, 45000);
         assert_eq!(merged[0].daily_rows[0].usage.cache_write_5m, 700);
     }
 
