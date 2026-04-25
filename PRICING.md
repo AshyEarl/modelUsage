@@ -40,7 +40,7 @@ For this project, a maintained local pricing file is more predictable.
 
 ## Official sources
 
-As of **2026-03-20**, OpenAI pricing was manually verified from:
+As of **2026-04-25**, OpenAI pricing was manually verified from:
 
 - OpenAI Pricing  
   https://developers.openai.com/api/docs/pricing
@@ -84,6 +84,7 @@ As of **2026-04-17**, Anthropic / Claude pricing was manually verified from:
 - `gpt-5.3-codex`
 - `gpt-5.4`
 - `gpt-5.4-pro`
+- `gpt-5.5`
 
 ## File format
 

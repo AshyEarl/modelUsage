@@ -144,9 +144,22 @@ mod tests {
             "gpt-5.3-codex",
             "gpt-5.4",
             "gpt-5.4-pro",
+            "gpt-5.5",
         ] {
             assert!(prices.models.contains_key(model), "missing model: {model}");
         }
+    }
+
+    #[test]
+    fn has_gpt_5_5_official_short_context_prices() {
+        let prices = load_bundled_prices().unwrap();
+        let price = prices
+            .models
+            .get("gpt-5.5")
+            .unwrap_or_else(|| panic!("missing model: gpt-5.5"));
+        assert_eq!(price.input_cost_per_mtoken, 5.0);
+        assert_eq!(price.output_cost_per_mtoken, 30.0);
+        assert_eq!(price.cache_read_cost_per_mtoken, Some(0.5));
     }
 
     #[test]

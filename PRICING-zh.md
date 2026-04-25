@@ -40,7 +40,7 @@
 
 ## 官方来源
 
-截至 **2026-03-20**，OpenAI 价格是人工从官方页面核对后写入的：
+截至 **2026-04-25**，OpenAI 价格是人工从官方页面核对后写入的：
 
 - OpenAI Pricing  
   https://developers.openai.com/api/docs/pricing
@@ -84,6 +84,7 @@
 - `gpt-5.3-codex`
 - `gpt-5.4`
 - `gpt-5.4-pro`
+- `gpt-5.5`
 
 ## 文件格式
 

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-04-20T00:00:00Z",
+  "updated_at": "2026-04-25T00:00:00Z",
   "models": {
     "haiku-4-5": {
       "input_cost_per_mtoken": 1.0,
@@ -127,6 +127,13 @@
       "cache_write_5m_cost_per_mtoken": null,
       "cache_write_1h_cost_per_mtoken": null,
       "cache_read_cost_per_mtoken": null
+    },
+    "gpt-5.5": {
+      "input_cost_per_mtoken": 5.0,
+      "output_cost_per_mtoken": 30.0,
+      "cache_write_5m_cost_per_mtoken": null,
+      "cache_write_1h_cost_per_mtoken": null,
+      "cache_read_cost_per_mtoken": 0.5
     },
     "codex-mini-latest": {
       "input_cost_per_mtoken": 1.5,
