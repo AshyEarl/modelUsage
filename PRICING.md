@@ -53,7 +53,7 @@ Notes:
 - I did not find a stable public official pricing API
 - pricing is therefore maintained by manually checking the official pages
 
-As of **2026-04-17**, Anthropic / Claude pricing was manually verified from:
+As of **2026-05-29**, Anthropic / Claude pricing was manually verified from:
 
 - Claude API pricing  
   https://platform.claude.com/docs/en/about-claude/pricing
@@ -70,6 +70,7 @@ As of **2026-04-17**, Anthropic / Claude pricing was manually verified from:
 - `opus-4-5`
 - `opus-4-6`
 - `opus-4-7`
+- `opus-4-8`
 
 ### OpenAI / Codex
 

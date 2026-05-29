@@ -53,7 +53,7 @@
 - 但我没有查到稳定公开的官方价格 API
 - 所以这里采用“人工核对官方页面后维护本地价格表”的方式
 
-截至 **2026-04-17**，Anthropic / Claude 价格是人工从官方页面核对后写入的：
+截至 **2026-05-29**，Anthropic / Claude 价格是人工从官方页面核对后写入的：
 
 - Claude API pricing  
   https://platform.claude.com/docs/en/about-claude/pricing
@@ -70,6 +70,7 @@
 - `opus-4-5`
 - `opus-4-6`
 - `opus-4-7`
+- `opus-4-8`
 
 ### OpenAI / Codex
 
