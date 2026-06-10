@@ -53,17 +53,30 @@
 - 但我没有查到稳定公开的官方价格 API
 - 所以这里采用“人工核对官方页面后维护本地价格表”的方式
 
-截至 **2026-05-29**，Anthropic / Claude 价格是人工从官方页面核对后写入的：
+截至 **2026-06-10**，Anthropic / Claude 价格是人工从官方页面核对后写入的：
 
 - Claude API pricing  
   https://platform.claude.com/docs/en/about-claude/pricing
 - Claude plans & pricing  
   https://claude.com/pricing
 
+截至 **2026-06-09**，Kimi、MiniMax 和 GLM 价格是人工从官方页面核对后写入的：
+
+- Kimi K2.6 pricing  
+  https://platform.kimi.ai/docs/pricing/chat-k26
+- MiniMax M3 pricing / pay-as-you-go pricing  
+  https://www.minimax.io/models/text/m3  
+  https://platform.minimaxi.com/docs/guides/pricing-paygo
+- BigModel GLM pricing  
+  https://bigmodel.cn/pricing
+
+MiniMax 和 GLM 官方价格以人民币发布。这里按 **2026-06-09 00:02:31 UTC** 从 ExchangeRate-API 取得的 USD/CNY **6.794828** 换算成美元。
+
 ## 当前已覆盖模型
 
 ### Claude
 
+- `fable-5`（1 小时 prompt cache write 价格官方暂未公布，保持 `N/A`）
 - `haiku-4-5`
 - `sonnet-4-5`
 - `sonnet-4-6`
@@ -86,6 +99,13 @@
 - `gpt-5.4`
 - `gpt-5.4-pro`
 - `gpt-5.5`
+
+### Kimi / MiniMax / GLM
+
+- `kimi-k2.6`
+- `minimax-m3`
+- `glm-5`
+- `glm-5.1`
 
 ## 文件格式
 

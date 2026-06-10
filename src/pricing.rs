@@ -163,6 +163,41 @@ mod tests {
     }
 
     #[test]
+    fn has_new_oss_models_from_claude_usage() {
+        let prices = load_bundled_prices().unwrap();
+        for (model, input, output, cache_read) in [
+            ("kimi-k2.6", 0.95, 4.0, 0.16),
+            ("minimax-m3", 0.309059, 1.236234, 0.061812),
+            ("glm-5", 0.588683, 2.649074, 0.147171),
+            ("glm-5.1", 0.883025, 3.532098, 0.191322),
+        ] {
+            let price = prices
+                .models
+                .get(model)
+                .unwrap_or_else(|| panic!("missing model: {model}"));
+            assert_eq!(price.input_cost_per_mtoken, input);
+            assert_eq!(price.output_cost_per_mtoken, output);
+            assert_eq!(price.cache_read_cost_per_mtoken, Some(cache_read));
+            assert_eq!(price.cache_write_5m_cost_per_mtoken, None);
+            assert_eq!(price.cache_write_1h_cost_per_mtoken, None);
+        }
+    }
+
+    #[test]
+    fn has_fable_5_official_prices() {
+        let prices = load_bundled_prices().unwrap();
+        let price = prices
+            .models
+            .get("fable-5")
+            .unwrap_or_else(|| panic!("missing model: fable-5"));
+        assert_eq!(price.input_cost_per_mtoken, 10.0);
+        assert_eq!(price.output_cost_per_mtoken, 50.0);
+        assert_eq!(price.cache_write_5m_cost_per_mtoken, Some(12.5));
+        assert_eq!(price.cache_write_1h_cost_per_mtoken, None);
+        assert_eq!(price.cache_read_cost_per_mtoken, Some(1.0));
+    }
+
+    #[test]
     fn has_current_claude_4x_models_and_cache_1h_prices() {
         let prices = load_bundled_prices().unwrap();
         for (model, expected_1h) in [

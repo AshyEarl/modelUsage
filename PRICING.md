@@ -53,17 +53,30 @@ Notes:
 - I did not find a stable public official pricing API
 - pricing is therefore maintained by manually checking the official pages
 
-As of **2026-05-29**, Anthropic / Claude pricing was manually verified from:
+As of **2026-06-10**, Anthropic / Claude pricing was manually verified from:
 
 - Claude API pricing  
   https://platform.claude.com/docs/en/about-claude/pricing
 - Claude plans & pricing  
   https://claude.com/pricing
 
+As of **2026-06-09**, Kimi, MiniMax, and GLM pricing was manually verified from:
+
+- Kimi K2.6 pricing  
+  https://platform.kimi.ai/docs/pricing/chat-k26
+- MiniMax M3 pricing / pay-as-you-go pricing  
+  https://www.minimax.io/models/text/m3  
+  https://platform.minimaxi.com/docs/guides/pricing-paygo
+- BigModel GLM pricing  
+  https://bigmodel.cn/pricing
+
+MiniMax and GLM prices are published in CNY. They were converted to USD with USD/CNY **6.794828** from ExchangeRate-API on **2026-06-09 00:02:31 UTC**.
+
 ## Models currently covered
 
 ### Claude
 
+- `fable-5` (1h prompt-cache write price is `N/A` until Anthropic publishes it)
 - `haiku-4-5`
 - `sonnet-4-5`
 - `sonnet-4-6`
@@ -86,6 +99,13 @@ As of **2026-05-29**, Anthropic / Claude pricing was manually verified from:
 - `gpt-5.4`
 - `gpt-5.4-pro`
 - `gpt-5.5`
+
+### Kimi / MiniMax / GLM
+
+- `kimi-k2.6`
+- `minimax-m3`
+- `glm-5`
+- `glm-5.1`
 
 ## File format
 
