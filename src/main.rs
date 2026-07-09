@@ -5,6 +5,7 @@ mod cli;
 mod codex;
 mod copilot;
 mod model;
+mod opencode;
 mod pricing;
 mod profile;
 mod report;
@@ -38,7 +39,7 @@ fn real_main() -> Result<()> {
     } else {
         println!(
             "{}",
-            table::render_daily_report(&report, report_label(&cli))
+            table::render_daily_report(&report, &report_label(&cli))
         );
     }
     if let Err(err) = update::maybe_check_for_updates(&cli) {
@@ -47,14 +48,24 @@ fn real_main() -> Result<()> {
     Ok(())
 }
 
-fn report_label(cli: &Cli) -> &'static str {
-    match (cli.claude, cli.codex, cli.copilot) {
-        (true, false, false) => "Claude",
-        (false, true, false) => "Codex",
-        (false, false, true) => "Copilot",
-        (true, true, false) => "Claude + Codex",
-        (true, false, true) => "Claude + Copilot",
-        (false, true, true) => "Codex + Copilot",
-        _ => "Claude + Codex + Copilot",
+fn report_label(cli: &Cli) -> String {
+    // Build the label from whichever source flags are active; with no flags, show all sources.
+    // 根据生效的来源 flag 拼装标签；不传任何 flag 时展示全部来源。
+    let mut parts: Vec<&str> = Vec::new();
+    if cli.claude {
+        parts.push("Claude");
     }
+    if cli.codex {
+        parts.push("Codex");
+    }
+    if cli.copilot {
+        parts.push("Copilot");
+    }
+    if cli.opencode {
+        parts.push("Opencode");
+    }
+    if parts.is_empty() {
+        parts.extend(&["Claude", "Codex", "Copilot", "Opencode"]);
+    }
+    parts.join(" + ")
 }

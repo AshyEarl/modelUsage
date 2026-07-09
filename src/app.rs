@@ -11,6 +11,7 @@ use crate::model::{
     ClaudeMessageRow, DailyReport, FileCacheEntry, FileDailyRow, SourceKind, StatsCache,
     UsageTotals,
 };
+use crate::opencode;
 use crate::pricing;
 use crate::profile;
 use crate::report;
@@ -67,10 +68,11 @@ pub fn run(cli: Cli) -> Result<DailyReport> {
     profile::set_suppressed(cli.json);
     // Keep source selection simple: when any flag is set only include flagged sources; otherwise include all.
     // 参数规则保持简单：任何一个来源 flag 设了就只扫指定的来源，都不传时默认全部扫。
-    let any_flag = cli.claude || cli.codex || cli.copilot;
+    let any_flag = cli.claude || cli.codex || cli.copilot || cli.opencode;
     let include_claude = cli.claude || !any_flag;
     let include_codex = cli.codex || !any_flag;
     let include_copilot = cli.copilot || !any_flag;
+    let include_opencode = cli.opencode || !any_flag;
     let debug_profile = profile::enabled();
     let emit_build_stats = !cli.json;
 
@@ -78,14 +80,15 @@ pub fn run(cli: Cli) -> Result<DailyReport> {
     let aggregation_tz_key = aggregation_tz.cache_key();
     if debug_profile {
         profile::log(format!(
-            "run start refresh={} all={} grouping={:?} tz={} include_claude={} include_codex={} include_copilot={}",
+            "run start refresh={} all={} grouping={:?} tz={} include_claude={} include_codex={} include_copilot={} include_opencode={}",
             cli.refresh,
             cli.all,
             cli.grouping,
             aggregation_tz_key,
             include_claude,
             include_codex,
-            include_copilot
+            include_copilot,
+            include_opencode
         ));
     }
 
@@ -160,6 +163,24 @@ pub fn run(cli: Cli) -> Result<DailyReport> {
             debug_profile,
         )?;
         source_stats.push(stats);
+    }
+    if include_opencode {
+        // OpenCode keeps all sessions in a single SQLite db rather than per-session JSONL,
+        // so it goes through a dedicated single-file scan path instead of the JSONL walk.
+        // OpenCode 把所有会话放在单个 SQLite 库里，而不是每个会话一个 JSONL，
+        // 因此走专门的单文件扫描路径，而不是 JSONL 目录遍历。
+        if let Some(db_path) = opencode::default_db_path() {
+            let stats = scan_opencode(
+                &db_path,
+                &aggregation_tz,
+                &mut cache,
+                &mut next_files,
+                debug_profile,
+            )?;
+            source_stats.push(stats);
+        } else if debug_profile {
+            profile::log("skip source=opencode (data dir not resolvable)");
+        }
     }
 
     let save_cache_started = Instant::now();
@@ -317,6 +338,11 @@ fn scan_source(
                         .with_context(|| format!("failed to parse {}", path.display()))?;
                     (parsed.daily_rows, Vec::new(), Some(parsed.details))
                 }
+                // OpenCode is handled by scan_opencode (single SQLite file), never reaches scan_source.
+                // OpenCode 走 scan_opencode（单个 SQLite 文件），不会进入 scan_source。
+                SourceKind::Opencode => {
+                    unreachable!("opencode is handled by scan_opencode, not scan_source")
+                }
             };
             let elapsed = parse_started.elapsed();
             parsed_ms += elapsed.as_millis();
@@ -371,6 +397,101 @@ fn scan_source(
             invalidations.size_changed,
             invalidations.mtime_changed,
             invalidations.parser_version_changed
+        ));
+    }
+
+    let parse_dirs = parse_dir_ms.into_iter().collect();
+    Ok(SourceBuildStats {
+        parsed_files,
+        invalidations,
+        parse_dirs,
+    })
+}
+
+/// Scan the OpenCode SQLite database as a single cached "file".
+/// OpenCode does not split sessions into JSONL files, so this mirrors the
+/// per-file incremental cache (size/mtime/parser_version) for one db path.
+/// 把 OpenCode 的 SQLite 库当作单个带缓存的"文件"来扫描。
+/// OpenCode 不按会话拆 JSONL，所以这里对单个 db 路径复用文件级增量缓存
+/// （size/mtime/parser_version）。
+fn scan_opencode(
+    db_path: &Path,
+    aggregation_tz: &AggregationTz,
+    cache: &mut StatsCache,
+    next_files: &mut BTreeMap<String, FileCacheEntry>,
+    debug_profile: bool,
+) -> Result<SourceBuildStats> {
+    if !db_path.exists() {
+        if debug_profile {
+            profile::log(format!(
+                "skip source=opencode db={} (not found)",
+                db_path.display()
+            ));
+        }
+        return Ok(SourceBuildStats {
+            parsed_files: 0,
+            invalidations: FileInvalidationStats::default(),
+            parse_dirs: Vec::new(),
+        });
+    }
+
+    let scan_started = Instant::now();
+    let metadata = match fs::metadata(db_path) {
+        Ok(metadata) => metadata,
+        Err(_) => {
+            return Ok(SourceBuildStats {
+                parsed_files: 0,
+                invalidations: FileInvalidationStats::default(),
+                parse_dirs: Vec::new(),
+            })
+        }
+    };
+    let key = db_path.to_string_lossy().to_string();
+    let existing = cache.files.get(&key);
+    let change_reason = file_change_reason(SourceKind::Opencode, existing, &metadata);
+    let mut parsed_files = 0u64;
+    let mut invalidations = FileInvalidationStats::default();
+    let mut parse_dir_ms: BTreeMap<PathBuf, u128> = BTreeMap::new();
+
+    let entry = if let Some(reason) = change_reason {
+        invalidations.record(reason);
+        let parse_started = Instant::now();
+        let daily_rows = opencode::parse_db(db_path, aggregation_tz)
+            .with_context(|| format!("failed to parse OpenCode db {}", db_path.display()))?;
+        let elapsed = parse_started.elapsed();
+        let parse_dir = db_path.parent().unwrap_or(db_path).to_path_buf();
+        *parse_dir_ms.entry(parse_dir).or_default() += elapsed.as_millis();
+        parsed_files += 1;
+        if debug_profile {
+            profile::log(format!(
+                "parsed source=opencode reason={} db={} size={} rows={} elapsed_ms={}",
+                file_change_reason_name(reason),
+                db_path.display(),
+                metadata.len(),
+                daily_rows.len(),
+                elapsed.as_millis()
+            ));
+        }
+        build_file_entry(
+            SourceKind::Opencode,
+            db_path,
+            &metadata,
+            daily_rows,
+            Vec::new(),
+            None,
+        )
+    } else {
+        existing.cloned().unwrap()
+    };
+    next_files.insert(key, entry);
+
+    let total_ms = scan_started.elapsed().as_millis();
+    if debug_profile {
+        profile::log(format!(
+            "scan done source=opencode db={} parsed_files={} total_ms={}",
+            db_path.display(),
+            parsed_files,
+            total_ms
         ));
     }
 
@@ -540,6 +661,7 @@ fn source_name(source: SourceKind) -> &'static str {
         SourceKind::Claude => "claude",
         SourceKind::Codex => "codex",
         SourceKind::Copilot => "copilot",
+        SourceKind::Opencode => "opencode",
     }
 }
 

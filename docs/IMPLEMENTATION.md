@@ -16,6 +16,14 @@ Codex logs:
 ~/.codex/sessions/**/*.jsonl
 ```
 
+OpenCode logs (single SQLite database, opened read-only):
+
+```text
+~/.local/share/opencode/opencode.db
+```
+
+OpenCode keeps all sessions in one SQLite file instead of per-session JSONL. Each assistant row in the `message` table already carries its own `modelID`, full token totals (`tokens.{input,output,reasoning,cache.{read,write},total}`), and the working directory (`path.cwd`), so usage is attributed per assistant message and naturally handles a session that switches models mid-conversation. The message-level totals reconcile exactly with the `session.*` token columns. The db is cached as a single "file" entry (size/mtime/parser_version).
+
 ## Cache files
 
 Stats cache:
@@ -96,3 +104,4 @@ Notes:
 - Codex-only reports hide `Cache Write` because Codex logs have no stable cache-write field.
 - Codex `Input` is non-cached input (aligned with `ccusage-codex`).
 - Codex `Total Tokens` is `Input + Output + Cache Read`.
+- OpenCode reports are Claude-style (not codex-like): `cache_read` is additive to `input`, and `Total Tokens` is the reported `tokens.total`. OpenCode exposes a single `cache.write` with no 5m/1h split, bucketed into the 5m column. Cost comes from local pricing, so plan-profile models without a token price show `N/A`.

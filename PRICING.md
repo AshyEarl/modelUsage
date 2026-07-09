@@ -72,6 +72,10 @@ As of **2026-06-09**, Kimi, MiniMax, and GLM pricing was manually verified from:
 
 MiniMax and GLM prices are published in CNY. They were converted to USD with USD/CNY **6.794828** from ExchangeRate-API on **2026-06-09 00:02:31 UTC**.
 
+As of **2026-07-09**, `glm-5.2` (new) was added from the official BigModel pricing page. It lists a single tier: input 8 CNY, output 28 CNY, cache read 2 CNY per 1M tokens (cache write is a limited-time free promotion, kept as `N/A` for consistency with `glm-5` / `glm-5.1`). Converted with the same USD/CNY **6.794828**.
+
+`glm-5.1` has two context-length tiers on the official page (`[0, 32K)` at 6/24/1.3 CNY and `[32K+)` at 8/28/2 CNY); the file stores the long-context `[32K+)` tier, since real heavy usage is long-context. Note `glm-5.2`'s single tier equals `glm-5.1`'s `[32K+)` tier.
+
 ## Models currently covered
 
 ### Claude
@@ -106,6 +110,7 @@ MiniMax and GLM prices are published in CNY. They were converted to USD with USD
 - `minimax-m3`
 - `glm-5`
 - `glm-5.1`
+- `glm-5.2`
 
 ## File format
 

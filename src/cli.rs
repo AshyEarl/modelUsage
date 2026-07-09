@@ -5,7 +5,7 @@ use clap::Parser;
 #[command(
     name = "modelUsage",
     version,
-    about = "Summarize Claude and Codex local usage logs"
+    about = "Summarize Claude, Codex, Copilot, and OpenCode local usage logs"
 )]
 pub struct Cli {
     /// Download and install the latest GitHub release binary.
@@ -62,6 +62,11 @@ pub struct Cli {
     /// 只统计 Copilot CLI 本地日志。
     #[arg(long, help = "Only include Copilot logs")]
     pub copilot: bool,
+
+    /// Only include OpenCode session DB logs.
+    /// 只统计 OpenCode 会话数据库日志。
+    #[arg(long, help = "Only include OpenCode logs")]
+    pub opencode: bool,
 
     #[arg(skip = ReportGrouping::Daily)]
     pub grouping: ReportGrouping,

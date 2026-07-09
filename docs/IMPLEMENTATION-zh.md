@@ -16,6 +16,14 @@ Codex 日志：
 ~/.codex/sessions/**/*.jsonl
 ```
 
+OpenCode 日志（单个 SQLite 数据库，只读打开）：
+
+```text
+~/.local/share/opencode/opencode.db
+```
+
+OpenCode 把所有会话放在单个 SQLite 库里，而不是每个会话一个 JSONL。`message` 表的每条助手消息已经自带 `modelID`、完整 token 统计（`tokens.{input,output,reasoning,cache.{read,write},total}`）和工作目录（`path.cwd`），因此用量按助手消息粒度归集，会话中途切模型也能正确归到对应模型。消息级汇总与 `session.*` 的 token 列完全对账。该库作为单个“文件”条目参与缓存（size/mtime/parser_version）。
+
 ## 缓存文件
 
 统计缓存：
@@ -96,3 +104,4 @@ Codex 日志：
 - Codex-only 报表会隐藏 `Cache Write`，因为 Codex 本地日志没有稳定可统计的 cache write 字段。
 - Codex 的 `Input` 显示的是“非缓存输入”，和 `ccusage-codex` 对齐。
 - Codex 的 `Total Tokens` 显示的是 `Input + Output + Cache Read`。
+- OpenCode 报表走 Claude 风格（非 codex-like）：`cache_read` 与 `input` 相加，`Total Tokens` 用上报的 `tokens.total`。OpenCode 只给一个 `cache.write`，不拆 5m/1h，统一归到 5m 桶。成本来自本地定价，因此没有 token 单价的套餐 profile 模型会显示 `N/A`。

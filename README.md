@@ -1,6 +1,6 @@
 # modelUsage
 
-`modelUsage` is a Rust CLI for local token/cost reports from `Claude Code`, `Codex`, and `GitHub Copilot CLI`.
+`modelUsage` is a Rust CLI for local token/cost reports from `Claude Code`, `Codex`, `GitHub Copilot CLI`, and `OpenCode`.
 
 ## Example output
 
@@ -77,10 +77,11 @@ install -m 755 modelUsage ~/.local/bin/modelUsage
 ## Usage
 
 ```bash
-modelUsage                 # latest 30 days, Claude + Codex + Copilot
+modelUsage                 # latest 30 days, Claude + Codex + Copilot + OpenCode
 modelUsage --claude        # Claude only
 modelUsage --codex         # Codex only
 modelUsage --copilot       # Copilot CLI only
+modelUsage --opencode      # OpenCode only
 modelUsage --project       # project summary (grouped by cwd only)
 modelUsage --daily --project    # date -> project
 modelUsage --project --daily    # project -> date
@@ -100,6 +101,7 @@ Timezone accepts:
 - Codex source roots include both `~/.codex/sessions` and `~/.codex/archived_sessions` when present.
 - Copilot CLI settled usage is read from `~/.copilot/session-state/*/events.jsonl` (requires Copilot CLI v0.0.422+).
 - Copilot cache write and in-progress session usage can be cross-filled from OTel JSONL. By default `modelUsage` checks `COPILOT_OTEL_FILE_EXPORTER_PATH`, then falls back to `~/.copilot/otel.jsonl`.
+- OpenCode usage is read from its session database at `~/.local/share/opencode/opencode.db` (via `opencode db path`); the db is opened read-only so a running OpenCode is never blocked. Cost is computed locally from `pricing/official-pricing.json`, so plan-profile models without a token price (e.g. `glm-5.2`) show `N/A`.
 
 Recommended Copilot CLI startup for the best available Copilot accounting:
 
@@ -134,6 +136,6 @@ COPILOT_OTEL_FILE_EXPORTER_PATH=$HOME/.copilot/otel.jsonl copilot
 
 ## Versioning
 
-- Current version: `0.1.11`
+- Current version: `0.1.23`
 - Source of truth: `Cargo.toml`
 - Tag format: `vX.Y.Z`

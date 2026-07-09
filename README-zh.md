@@ -1,6 +1,6 @@
 # modelUsage
 
-`modelUsage` 是一个 Rust CLI，用来统计本地 `Claude Code`、`Codex` 和 `GitHub Copilot CLI` 的 token / 成本使用情况。
+`modelUsage` 是一个 Rust CLI，用来统计本地 `Claude Code`、`Codex`、`GitHub Copilot CLI` 和 `OpenCode` 的 token / 成本使用情况。
 
 ## 示例输出
 
@@ -77,10 +77,11 @@ install -m 755 modelUsage ~/.local/bin/modelUsage
 ## 使用方式
 
 ```bash
-modelUsage                 # 最近 30 天，Claude + Codex + Copilot
+modelUsage                 # 最近 30 天，Claude + Codex + Copilot + OpenCode
 modelUsage --claude        # 只看 Claude
 modelUsage --codex         # 只看 Codex
 modelUsage --copilot       # 只看 Copilot CLI
+modelUsage --opencode      # 只看 OpenCode
 modelUsage --project       # 仅按项目（cwd）汇总
 modelUsage --daily --project    # 日期 -> 项目
 modelUsage --project --daily    # 项目 -> 日期
@@ -100,6 +101,7 @@ modelUsage --update        # 下载并替换当前二进制
 - Codex 数据源会同时包含 `~/.codex/sessions` 与 `~/.codex/archived_sessions`（目录存在时）。
 - Copilot CLI 的已落盘统计来自 `~/.copilot/session-state/*/events.jsonl`（需要 Copilot CLI v0.0.422+）。
 - Copilot 的 `cache write` 和运行中会话用量可通过 OTel JSONL 交叉补齐。`modelUsage` 默认先读 `COPILOT_OTEL_FILE_EXPORTER_PATH`，未设置时再尝试 `~/.copilot/otel.jsonl`。
+- OpenCode 的用量来自其会话数据库 `~/.local/share/opencode/opencode.db`（即 `opencode db path`）；以只读方式打开，不会阻塞正在运行的 OpenCode。成本由本地 `pricing/official-pricing.json` 计算，因此没有 token 单价的套餐 profile 模型（如 `glm-5.2`）会显示 `N/A`。
 
 推荐这样启动 Copilot CLI，以便拿到当前能拿到的最完整 Copilot 统计：
 
@@ -134,6 +136,6 @@ COPILOT_OTEL_FILE_EXPORTER_PATH=$HOME/.copilot/otel.jsonl copilot
 
 ## 版本说明
 
-- 当前版本：`0.1.11`
+- 当前版本：`0.1.23`
 - 版本号来源：`Cargo.toml`
 - Tag 格式：`vX.Y.Z`

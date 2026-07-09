@@ -16,6 +16,7 @@ const COPILOT_OTEL_FILE_NAME: &str = "copilot-otel.json";
 const CLAUDE_PARSER_VERSION: u32 = 3;
 const CODEX_PARSER_VERSION: u32 = 2;
 const COPILOT_PARSER_VERSION: u32 = 5;
+const OPENCODE_PARSER_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StatsCacheLoadState {
@@ -163,6 +164,7 @@ pub fn parser_version(source: SourceKind) -> u32 {
         SourceKind::Claude => CLAUDE_PARSER_VERSION,
         SourceKind::Codex => CODEX_PARSER_VERSION,
         SourceKind::Copilot => COPILOT_PARSER_VERSION,
+        SourceKind::Opencode => OPENCODE_PARSER_VERSION,
     }
 }
 

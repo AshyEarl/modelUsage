@@ -11,6 +11,7 @@ pub enum SourceKind {
     Claude,
     Codex,
     Copilot,
+    Opencode,
 }
 
 /// Unified token accounting structure shared by Claude and Codex after parsing.

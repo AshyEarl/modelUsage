@@ -169,7 +169,10 @@ mod tests {
             ("kimi-k2.6", 0.95, 4.0, 0.16),
             ("minimax-m3", 0.309059, 1.236234, 0.061812),
             ("glm-5", 0.588683, 2.649074, 0.147171),
-            ("glm-5.1", 0.883025, 3.532098, 0.191322),
+            // glm-5.1 uses the long-context [32K+) tier (8/28/2 CNY), same as glm-5.2.
+            // glm-5.1 采用长上下文 [32K+) 档（8/28/2 元），与 glm-5.2 相同。
+            ("glm-5.1", 1.177366, 4.120781, 0.294342),
+            ("glm-5.2", 1.177366, 4.120781, 0.294342),
         ] {
             let price = prices
                 .models
@@ -181,6 +184,22 @@ mod tests {
             assert_eq!(price.cache_write_5m_cost_per_mtoken, None);
             assert_eq!(price.cache_write_1h_cost_per_mtoken, None);
         }
+    }
+
+    #[test]
+    fn has_glm_5_2_official_price() {
+        // GLM-5.2 (new) lists a single tier: input 8 CNY / output 28 CNY / cache read 2 CNY per 1M,
+        // cache write is a limited-time free promotion. Converted to USD at USD/CNY 6.794828.
+        // GLM-5.2（新品）单一档位：输入 8 元 / 输出 28 元 / 缓存读取 2 元（每百万 token），
+        // 缓存写入限时免费。按 USD/CNY 6.794828 折算成美元。
+        let prices = load_bundled_prices().unwrap();
+        let price = prices
+            .models
+            .get("glm-5.2")
+            .unwrap_or_else(|| panic!("missing model: glm-5.2"));
+        assert_eq!(price.input_cost_per_mtoken, 1.177366);
+        assert_eq!(price.output_cost_per_mtoken, 4.120781);
+        assert_eq!(price.cache_read_cost_per_mtoken, Some(0.294342));
     }
 
     #[test]
