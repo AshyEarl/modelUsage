@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-07-09T12:00:00Z",
+  "updated_at": "2026-07-10T12:00:00Z",
   "models": {
     "fable-5": {
       "input_cost_per_mtoken": 10.0,
@@ -148,6 +148,34 @@
       "cache_write_5m_cost_per_mtoken": null,
       "cache_write_1h_cost_per_mtoken": null,
       "cache_read_cost_per_mtoken": 0.5
+    },
+    "gpt-5.6": {
+      "input_cost_per_mtoken": 5.0,
+      "output_cost_per_mtoken": 30.0,
+      "cache_write_5m_cost_per_mtoken": null,
+      "cache_write_1h_cost_per_mtoken": null,
+      "cache_read_cost_per_mtoken": 0.5
+    },
+    "gpt-5.6-sol": {
+      "input_cost_per_mtoken": 5.0,
+      "output_cost_per_mtoken": 30.0,
+      "cache_write_5m_cost_per_mtoken": null,
+      "cache_write_1h_cost_per_mtoken": null,
+      "cache_read_cost_per_mtoken": 0.5
+    },
+    "gpt-5.6-terra": {
+      "input_cost_per_mtoken": 2.5,
+      "output_cost_per_mtoken": 15.0,
+      "cache_write_5m_cost_per_mtoken": null,
+      "cache_write_1h_cost_per_mtoken": null,
+      "cache_read_cost_per_mtoken": 0.25
+    },
+    "gpt-5.6-luna": {
+      "input_cost_per_mtoken": 1.0,
+      "output_cost_per_mtoken": 6.0,
+      "cache_write_5m_cost_per_mtoken": null,
+      "cache_write_1h_cost_per_mtoken": null,
+      "cache_read_cost_per_mtoken": 0.1
     },
     "codex-mini-latest": {
       "input_cost_per_mtoken": 1.5,

@@ -145,6 +145,10 @@ mod tests {
             "gpt-5.4",
             "gpt-5.4-pro",
             "gpt-5.5",
+            "gpt-5.6",
+            "gpt-5.6-sol",
+            "gpt-5.6-terra",
+            "gpt-5.6-luna",
         ] {
             assert!(prices.models.contains_key(model), "missing model: {model}");
         }
@@ -160,6 +164,45 @@ mod tests {
         assert_eq!(price.input_cost_per_mtoken, 5.0);
         assert_eq!(price.output_cost_per_mtoken, 30.0);
         assert_eq!(price.cache_read_cost_per_mtoken, Some(0.5));
+    }
+
+    #[test]
+    fn has_gpt_5_6_official_short_context_prices() {
+        let prices = load_bundled_prices().unwrap();
+        let sol = prices
+            .models
+            .get("gpt-5.6-sol")
+            .unwrap_or_else(|| panic!("missing model: gpt-5.6-sol"));
+        assert_eq!(sol.input_cost_per_mtoken, 5.0);
+        assert_eq!(sol.output_cost_per_mtoken, 30.0);
+        assert_eq!(sol.cache_read_cost_per_mtoken, Some(0.5));
+
+        let alias = prices
+            .models
+            .get("gpt-5.6")
+            .unwrap_or_else(|| panic!("missing model: gpt-5.6"));
+        assert_eq!(alias.input_cost_per_mtoken, sol.input_cost_per_mtoken);
+        assert_eq!(alias.output_cost_per_mtoken, sol.output_cost_per_mtoken);
+        assert_eq!(
+            alias.cache_read_cost_per_mtoken,
+            sol.cache_read_cost_per_mtoken
+        );
+
+        let terra = prices
+            .models
+            .get("gpt-5.6-terra")
+            .unwrap_or_else(|| panic!("missing model: gpt-5.6-terra"));
+        assert_eq!(terra.input_cost_per_mtoken, 2.5);
+        assert_eq!(terra.output_cost_per_mtoken, 15.0);
+        assert_eq!(terra.cache_read_cost_per_mtoken, Some(0.25));
+
+        let luna = prices
+            .models
+            .get("gpt-5.6-luna")
+            .unwrap_or_else(|| panic!("missing model: gpt-5.6-luna"));
+        assert_eq!(luna.input_cost_per_mtoken, 1.0);
+        assert_eq!(luna.output_cost_per_mtoken, 6.0);
+        assert_eq!(luna.cache_read_cost_per_mtoken, Some(0.1));
     }
 
     #[test]

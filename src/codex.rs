@@ -296,6 +296,10 @@ mod tests {
         );
         assert_eq!(normalize_codex_model("gpt-5.3-codex"), "gpt-5.3-codex");
         assert_eq!(normalize_codex_model("gpt-5.2"), "gpt-5.2");
+        assert_eq!(normalize_codex_model("gpt-5.6-sol"), "gpt-5.6-sol");
+        assert_eq!(normalize_codex_model("gpt-5.6-terra"), "gpt-5.6-terra");
+        assert_eq!(normalize_codex_model("gpt-5.6-luna"), "gpt-5.6-luna");
+        assert_eq!(normalize_codex_model("gpt-5.6"), "gpt-5.6");
     }
 
     #[test]
