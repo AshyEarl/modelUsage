@@ -84,6 +84,7 @@ As of **2026-07-09**, `glm-5.2` (new) was added from the official BigModel prici
 - `haiku-4-5`
 - `sonnet-4-5`
 - `sonnet-4-6`
+- `sonnet-5` (introductory pricing through Aug 31, 2026; standard $3/$15 thereafter)
 - `opus-4-5`
 - `opus-4-6`
 - `opus-4-7`

@@ -278,4 +278,18 @@ mod tests {
             assert_eq!(price.cache_write_1h_cost_per_mtoken, Some(expected_1h));
         }
     }
+
+    #[test]
+    fn has_sonnet_5_introductory_prices() {
+        let prices = load_bundled_prices().unwrap();
+        let price = prices
+            .models
+            .get("sonnet-5")
+            .unwrap_or_else(|| panic!("missing model: sonnet-5"));
+        assert_eq!(price.input_cost_per_mtoken, 2.0);
+        assert_eq!(price.output_cost_per_mtoken, 10.0);
+        assert_eq!(price.cache_write_5m_cost_per_mtoken, Some(2.5));
+        assert_eq!(price.cache_write_1h_cost_per_mtoken, Some(4.0));
+        assert_eq!(price.cache_read_cost_per_mtoken, Some(0.2));
+    }
 }
