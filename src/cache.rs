@@ -14,7 +14,7 @@ const PRICING_FILE_NAME: &str = "pricing.json";
 const UPDATE_FILE_NAME: &str = "update.json";
 const COPILOT_OTEL_FILE_NAME: &str = "copilot-otel.json";
 const CLAUDE_PARSER_VERSION: u32 = 3;
-const CODEX_PARSER_VERSION: u32 = 2;
+const CODEX_PARSER_VERSION: u32 = 3;
 const COPILOT_PARSER_VERSION: u32 = 5;
 const OPENCODE_PARSER_VERSION: u32 = 1;
 
@@ -145,6 +145,7 @@ pub fn build_file_entry(
     metadata: &fs::Metadata,
     daily_rows: Vec<crate::model::FileDailyRow>,
     claude_message_rows: Vec<crate::model::ClaudeMessageRow>,
+    codex_details: Option<crate::model::CodexFileDetails>,
     copilot_details: Option<CopilotFileDetails>,
 ) -> FileCacheEntry {
     FileCacheEntry {
@@ -155,6 +156,7 @@ pub fn build_file_entry(
         mtime_ms: file_mtime_ms(metadata).unwrap_or_default(),
         daily_rows,
         claude_message_rows,
+        codex_details,
         copilot_details,
     }
 }
@@ -267,6 +269,7 @@ mod tests {
                 mtime_ms: 1,
                 daily_rows: vec![],
                 claude_message_rows: vec![],
+                codex_details: None,
                 copilot_details: None,
             },
         );
@@ -302,6 +305,7 @@ mod tests {
                 mtime_ms: 1,
                 daily_rows: vec![],
                 claude_message_rows: vec![],
+                codex_details: None,
                 copilot_details: None,
             },
         );
@@ -357,6 +361,7 @@ mod tests {
             mtime_ms: super::file_mtime_ms(&metadata).unwrap(),
             daily_rows: vec![],
             claude_message_rows: vec![],
+            codex_details: None,
             copilot_details: None,
         };
 
@@ -380,6 +385,7 @@ mod tests {
             mtime_ms: super::file_mtime_ms(&metadata).unwrap(),
             daily_rows: vec![],
             claude_message_rows: vec![],
+            codex_details: None,
             copilot_details: None,
         };
 

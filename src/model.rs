@@ -86,6 +86,31 @@ pub struct ClaudeMessageRow {
     pub usage: UsageTotals,
 }
 
+/// One emitted Codex token-count row retained only for forked rollouts.
+/// 仅为 fork rollout 保留的一条已计入 Codex token-count 记录。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CodexTokenRow {
+    pub date: NaiveDate,
+    pub project: String,
+    pub model: String,
+    pub usage: UsageTotals,
+}
+
+/// Codex session relationships, compact fingerprints, and fork rows used for reconciliation.
+/// 为 fork 对账保留的 Codex 会话关系、紧凑指纹和分支记录。
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct CodexFileDetails {
+    pub thread_id: Option<String>,
+    pub parent_thread_id: Option<String>,
+    pub forked_from_id: Option<String>,
+    #[serde(default)]
+    pub fork_reconciled: bool,
+    #[serde(default)]
+    pub token_fingerprints: Vec<String>,
+    #[serde(default)]
+    pub token_rows: Vec<CodexTokenRow>,
+}
+
 /// File-level cache entry.
 /// Reuse the previous daily rows when size/mtime are unchanged to avoid full rescans.
 /// 文件级缓存条目。只要 size/mtime 没变，就复用这个文件上次算出的 daily_rows，避免全量重扫。
@@ -100,6 +125,8 @@ pub struct FileCacheEntry {
     pub daily_rows: Vec<FileDailyRow>,
     #[serde(default)]
     pub claude_message_rows: Vec<ClaudeMessageRow>,
+    #[serde(default)]
+    pub codex_details: Option<CodexFileDetails>,
     #[serde(default)]
     pub copilot_details: Option<CopilotFileDetails>,
 }

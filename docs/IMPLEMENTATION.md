@@ -16,6 +16,12 @@ Codex logs:
 ~/.codex/sessions/**/*.jsonl
 ```
 
+Codex multi-agent v2 rollouts replay the parent's token-count history when a child thread is
+forked, and the replayed records use the child spawn time. The parser keeps session relationship
+metadata and compact token fingerprints, removes only the verified common parent/child prefix,
+and caches the child branch delta. v1 sub-agent logs without `forked_from_id`, and forked logs
+whose parent is unavailable, are left intact.
+
 OpenCode logs (single SQLite database, opened read-only):
 
 ```text

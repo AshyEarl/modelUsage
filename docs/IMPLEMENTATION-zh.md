@@ -16,6 +16,11 @@ Codex 日志：
 ~/.codex/sessions/**/*.jsonl
 ```
 
+Codex multi-agent v2 在 fork 子线程时会把父线程的 token 历史回放进子 rollout，
+而且这些回放记录会使用子线程的启动时间。解析器会保留会话关系元数据和紧凑的
+token 指纹，只删除经过核对的父子共同前缀，并缓存子线程自身的增量。没有
+`forked_from_id` 的 v1 子 agent 日志，以及找不到父线程的 fork 日志，都会保持原样。
+
 OpenCode 日志（单个 SQLite 数据库，只读打开）：
 
 ```text

@@ -541,6 +541,7 @@ pub fn merge_entries_with_otel(
             mtime_ms: 0,
             daily_rows,
             claude_message_rows: Vec::new(),
+            codex_details: None,
             copilot_details: None,
         });
     }
@@ -1212,6 +1213,7 @@ mod tests {
                 usage(10000, 2000, 40000, 0),
             )],
             claude_message_rows: vec![],
+            codex_details: None,
             copilot_details: Some(CopilotFileDetails {
                 session_id: Some("00dbb9de-51b2-427c-ad63-ead04dff8e6a".to_string()),
                 shutdown_rows: vec![daily_row(
@@ -1297,6 +1299,7 @@ mod tests {
                 ),
             ],
             claude_message_rows: vec![],
+            codex_details: None,
             copilot_details: Some(CopilotFileDetails {
                 session_id: Some("aabb1122-0000-0000-0000-000000000000".to_string()),
                 shutdown_rows: vec![],
@@ -1391,6 +1394,7 @@ mod tests {
                 usage(60_000_000, 0, 0, 0),
             )],
             claude_message_rows: vec![],
+            codex_details: None,
             copilot_details: Some(CopilotFileDetails {
                 session_id: Some("ccdd3344-0000-0000-0000-000000000000".to_string()),
                 shutdown_rows: vec![],

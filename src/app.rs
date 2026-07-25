@@ -20,7 +20,7 @@ use anyhow::{Context, Result};
 use chrono::Days;
 use dirs::home_dir;
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -183,8 +183,13 @@ pub fn run(cli: Cli) -> Result<DailyReport> {
         }
     }
 
+    hydrate_codex_parent_fingerprints(&mut next_files, &aggregation_tz)?;
+    let reconciled_entries = codex::reconcile_forked_entries(next_files.into_values().collect());
     let save_cache_started = Instant::now();
-    cache.files = next_files;
+    cache.files = reconciled_entries
+        .into_iter()
+        .map(|entry| (entry.path.to_string_lossy().to_string(), entry))
+        .collect();
     save_stats_cache(&cache)?;
     let save_cache_ms = save_cache_started.elapsed().as_millis();
 
@@ -268,6 +273,70 @@ fn codex_source_roots(codex_home: &Path) -> [PathBuf; 2] {
     ]
 }
 
+fn hydrate_codex_parent_fingerprints(
+    entries: &mut BTreeMap<String, FileCacheEntry>,
+    aggregation_tz: &AggregationTz,
+) -> Result<()> {
+    let required_parent_ids: BTreeSet<String> = entries
+        .values()
+        .filter_map(|entry| {
+            let details = entry.codex_details.as_ref()?;
+            if details.fork_reconciled {
+                return None;
+            }
+            details.forked_from_id.clone()
+        })
+        .collect();
+    if required_parent_ids.is_empty() {
+        return Ok(());
+    }
+
+    let thread_paths: BTreeMap<String, String> = entries
+        .iter()
+        .filter_map(|(key, entry)| {
+            let details = entry.codex_details.as_ref()?;
+            details
+                .thread_id
+                .clone()
+                .map(|thread_id| (thread_id, key.clone()))
+        })
+        .collect();
+    let paths_to_hydrate: Vec<String> = required_parent_ids
+        .iter()
+        .filter_map(|thread_id| thread_paths.get(thread_id))
+        .filter(|key| {
+            entries
+                .get(*key)
+                .and_then(|entry| entry.codex_details.as_ref())
+                .is_some_and(|details| details.token_fingerprints.is_empty())
+        })
+        .cloned()
+        .collect();
+
+    for key in paths_to_hydrate {
+        let Some(path) = entries.get(&key).map(|entry| entry.path.clone()) else {
+            continue;
+        };
+        if !path.exists() {
+            continue;
+        }
+        // Compact caches omit unused root fingerprints. Rehydrate only a parent
+        // that becomes necessary for a new or previously unresolved fork.
+        // 紧凑缓存会省略未使用的根线程指纹；只有新 fork 或此前未解析的 fork
+        // 真正需要父线程时才重新读取。
+        let parsed = codex::parse_file_detailed(&path, aggregation_tz)
+            .with_context(|| format!("failed to rehydrate Codex parent {}", path.display()))?;
+        if let Some(entry) = entries.get_mut(&key) {
+            if let Some(details) = entry.codex_details.as_mut() {
+                details.token_fingerprints = parsed.details.token_fingerprints;
+            } else {
+                entry.codex_details = Some(parsed.details);
+            }
+        }
+    }
+    Ok(())
+}
+
 fn scan_source(
     source: SourceKind,
     root: &Path,
@@ -322,21 +391,21 @@ fn scan_source(
             // Reparse only changed files so we do not rescan the full history on every run.
             // 文件变了才重新解析，避免每次都把历史日志全扫一遍。
             let parse_started = Instant::now();
-            let (daily_rows, claude_message_rows, copilot_details) = match source {
+            let (daily_rows, claude_message_rows, codex_details, copilot_details) = match source {
                 SourceKind::Claude => {
                     let parsed = claude::parse_file_detailed(&path, aggregation_tz)
                         .with_context(|| format!("failed to parse {}", path.display()))?;
-                    (parsed.daily_rows, parsed.message_rows, None)
+                    (parsed.daily_rows, parsed.message_rows, None, None)
                 }
                 SourceKind::Codex => {
-                    let daily_rows = codex::parse_file(&path, aggregation_tz)
+                    let parsed = codex::parse_file_detailed(&path, aggregation_tz)
                         .with_context(|| format!("failed to parse {}", path.display()))?;
-                    (daily_rows, Vec::new(), None)
+                    (parsed.daily_rows, Vec::new(), Some(parsed.details), None)
                 }
                 SourceKind::Copilot => {
                     let parsed = copilot::parse_file_detailed(&path, aggregation_tz)
                         .with_context(|| format!("failed to parse {}", path.display()))?;
-                    (parsed.daily_rows, Vec::new(), Some(parsed.details))
+                    (parsed.daily_rows, Vec::new(), None, Some(parsed.details))
                 }
                 // OpenCode is handled by scan_opencode (single SQLite file), never reaches scan_source.
                 // OpenCode 走 scan_opencode（单个 SQLite 文件），不会进入 scan_source。
@@ -369,6 +438,7 @@ fn scan_source(
                 &metadata,
                 daily_rows,
                 claude_message_rows,
+                codex_details,
                 copilot_details,
             )
         } else {
@@ -478,6 +548,7 @@ fn scan_opencode(
             &metadata,
             daily_rows,
             Vec::new(),
+            None,
             None,
         )
     } else {
@@ -593,6 +664,7 @@ fn dedup_claude_entries_by_session_message(
         mtime_ms: 0,
         daily_rows,
         claude_message_rows: Vec::new(),
+        codex_details: None,
         copilot_details: None,
     });
     other_entries
@@ -996,6 +1068,7 @@ mod tests {
             mtime_ms: 1,
             daily_rows: vec![daily_row.clone()],
             claude_message_rows: vec![],
+            codex_details: None,
             copilot_details: None,
         }];
 
@@ -1026,6 +1099,7 @@ mod tests {
                 mtime_ms: 1,
                 daily_rows: vec![codex_row.clone()],
                 claude_message_rows: vec![],
+                codex_details: None,
                 copilot_details: None,
             },
             claude_entry(
@@ -1062,6 +1136,7 @@ mod tests {
             mtime_ms: 1,
             daily_rows: vec![],
             claude_message_rows: rows,
+            codex_details: None,
             copilot_details: None,
         }
     }

@@ -277,6 +277,7 @@ mod tests {
                     },
                 }],
                 claude_message_rows: vec![],
+                codex_details: None,
                 copilot_details: None,
             },
             FileCacheEntry {
@@ -295,6 +296,7 @@ mod tests {
                     },
                 }],
                 claude_message_rows: vec![],
+                codex_details: None,
                 copilot_details: None,
             },
         ]
@@ -329,6 +331,7 @@ mod tests {
                     },
                 ],
                 claude_message_rows: vec![],
+                codex_details: None,
                 copilot_details: None,
             },
             FileCacheEntry {
@@ -347,6 +350,7 @@ mod tests {
                     },
                 }],
                 claude_message_rows: vec![],
+                codex_details: None,
                 copilot_details: None,
             },
         ]
