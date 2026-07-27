@@ -60,6 +60,8 @@
 - Claude plans & pricing  
   https://claude.com/pricing
 
+截至 **2026-07-27**，新增 `opus-5`，来源为 Claude API 官方价格页。其每百万 token 单价与 `opus-4-x` 系列一致：输入 $5、输出 $25、5 分钟缓存写入 $6.25、1 小时缓存写入 $10、缓存读取 $0.50。
+
 截至 **2026-06-09**，Kimi、MiniMax 和 GLM 价格是人工从官方页面核对后写入的：
 
 - Kimi K2.6 pricing  
@@ -89,6 +91,7 @@ MiniMax 和 GLM 官方价格以人民币发布。这里按 **2026-06-09 00:02:31
 - `opus-4-6`
 - `opus-4-7`
 - `opus-4-8`
+- `opus-5`
 
 ### OpenAI / Codex
 

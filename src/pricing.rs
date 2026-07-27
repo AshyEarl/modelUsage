@@ -270,6 +270,7 @@ mod tests {
             ("opus-4-6", 10.0),
             ("opus-4-7", 10.0),
             ("opus-4-8", 10.0),
+            ("opus-5", 10.0),
         ] {
             let price = prices
                 .models
