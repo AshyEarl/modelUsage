@@ -102,6 +102,7 @@ Timezone accepts:
 - Copilot CLI settled usage is read from `~/.copilot/session-state/*/events.jsonl` (requires Copilot CLI v0.0.422+).
 - Copilot cache write and in-progress session usage can be cross-filled from OTel JSONL. By default `modelUsage` checks `COPILOT_OTEL_FILE_EXPORTER_PATH`, then falls back to `~/.copilot/otel.jsonl`.
 - OpenCode usage is read from its session database at `~/.local/share/opencode/opencode.db` (via `opencode db path`); the db is opened read-only so a running OpenCode is never blocked. Cost is computed locally from `pricing/official-pricing.json`, so plan-profile models without a token price (e.g. `glm-5.2`) show `N/A`.
+- Claude compact calls are included. When a `compact_boundary` lacks exact API usage, `modelUsage` estimates it from `preTokens` / `postTokens`, the nearby model, and the recorded 5-minute or 1-hour cache lifetime, then emits a warning.
 
 Recommended Copilot CLI startup for the best available Copilot accounting:
 
@@ -117,7 +118,7 @@ COPILOT_OTEL_FILE_EXPORTER_PATH=$HOME/.copilot/otel.jsonl copilot
 - Checks are throttled to once per 24 hours.
 - `--json` and non-TTY runs skip update checks.
 - On Windows, `--update` currently requires manual binary replacement after download.
-- When Claude data is present, a warning is emitted because upstream local `input/output` usage can be undercounted.
+- When Claude data is present, a warning describes upstream local-log omissions and whether compact usage was estimated.
 
 ## Platform support
 

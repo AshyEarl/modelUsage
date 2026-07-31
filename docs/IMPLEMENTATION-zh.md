@@ -106,6 +106,11 @@ OpenCode 把所有会话放在单个 SQLite 库里，而不是每个会话一个
 说明：
 
 - Claude 本地日志通常没有稳定的 reasoning 字段，所以整份报表都是 0 时会自动隐藏该列。
+- Claude 的 `compact_boundary` 会转换为合成 usage 行。有精确 `compactionUsage` 时优先使用；
+  否则根据 compact 开始时间与上一条消息记录的 5 分钟/1 小时缓存有效期，把
+  `preTokens` 拆成普通 input 和 cache read，并把 `postTokens` 作为 compact output
+  的估算值。模型优先取 boundary 自带值，其次取 boundary 后短时间内的响应，最后取
+  压缩前最近一次响应。只要存在估算 compact 行，报表就会输出 warning。
 - Codex-only 报表会隐藏 `Cache Write`，因为 Codex 本地日志没有稳定可统计的 cache write 字段。
 - Codex 的 `Input` 显示的是“非缓存输入”，和 `ccusage-codex` 对齐。
 - Codex 的 `Total Tokens` 显示的是 `Input + Output + Cache Read`。

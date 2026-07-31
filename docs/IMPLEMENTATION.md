@@ -107,6 +107,13 @@ Columns:
 Notes:
 
 - Claude logs often have no stable reasoning field; the column is hidden when all values are zero.
+- Claude `compact_boundary` records are converted into synthetic usage rows. Exact
+  `compactionUsage` is preferred when present. Otherwise `preTokens` is split between
+  ordinary input and cache read by comparing the compact start time with the preceding
+  message's recorded 5-minute/1-hour cache lifetime; `postTokens` is used as the compact
+  output estimate. The model comes from an explicit boundary model when available, then a
+  response shortly after the boundary, then the latest prior response. Estimated compact
+  rows produce a report warning.
 - Codex-only reports hide `Cache Write` because Codex logs have no stable cache-write field.
 - Codex `Input` is non-cached input (aligned with `ccusage-codex`).
 - Codex `Total Tokens` is `Input + Output + Cache Read`.

@@ -84,6 +84,10 @@ pub struct ClaudeMessageRow {
     pub project: String,
     pub model: String,
     pub usage: UsageTotals,
+    /// True when exact upstream usage was unavailable and this row was reconstructed from metadata.
+    /// 上游没有精确 usage、只能根据元数据重建该行时为 true。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub estimated: bool,
 }
 
 /// One emitted Codex token-count row retained only for forked rollouts.
@@ -182,6 +186,10 @@ pub fn default_aggregation_tz_key() -> String {
 
 pub fn default_project_name() -> String {
     "<unknown-project>".to_string()
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// Per-model pricing configuration expressed in USD per million tokens.

@@ -102,6 +102,7 @@ modelUsage --update        # 下载并替换当前二进制
 - Copilot CLI 的已落盘统计来自 `~/.copilot/session-state/*/events.jsonl`（需要 Copilot CLI v0.0.422+）。
 - Copilot 的 `cache write` 和运行中会话用量可通过 OTel JSONL 交叉补齐。`modelUsage` 默认先读 `COPILOT_OTEL_FILE_EXPORTER_PATH`，未设置时再尝试 `~/.copilot/otel.jsonl`。
 - OpenCode 的用量来自其会话数据库 `~/.local/share/opencode/opencode.db`（即 `opencode db path`）；以只读方式打开，不会阻塞正在运行的 OpenCode。成本由本地 `pricing/official-pricing.json` 计算，因此没有 token 单价的套餐 profile 模型（如 `glm-5.2`）会显示 `N/A`。
+- Claude 的 compact 调用会纳入统计。如果 `compact_boundary` 没有精确 API usage，`modelUsage` 会根据 `preTokens` / `postTokens`、邻近消息的模型以及日志里的 5 分钟或 1 小时缓存有效期进行估算，并输出 warning。
 
 推荐这样启动 Copilot CLI，以便拿到当前能拿到的最完整 Copilot 统计：
 
@@ -117,7 +118,7 @@ COPILOT_OTEL_FILE_EXPORTER_PATH=$HOME/.copilot/otel.jsonl copilot
 - 更新检查默认 24 小时最多一次。
 - `--json` 和非 TTY 场景不会执行联网检查。
 - Windows 上 `--update` 当前仍需下载后手动替换二进制。
-- 当报表包含 Claude 数据时，会输出 warning：上游本地日志的 `input/output` 可能低估。
+- 当报表包含 Claude 数据时，会输出 warning，说明上游本地日志的缺失情况，以及 compact 用量是否经过估算。
 
 ## 平台支持
 

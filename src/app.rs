@@ -195,10 +195,11 @@ pub fn run(cli: Cli) -> Result<DailyReport> {
 
     let report_started = Instant::now();
     let prices = pricing::load_prices()?;
-    let mut entries: Vec<FileCacheEntry> = dedup_claude_entries_by_session_message(
-        cache.files.into_values().collect(),
-        &aggregation_tz,
-    );
+    let raw_entries: Vec<FileCacheEntry> = cache.files.into_values().collect();
+    let has_estimated_claude_compact =
+        has_estimated_claude_compact_in_range(&raw_entries, &aggregation_tz, cli.all);
+    let mut entries: Vec<FileCacheEntry> =
+        dedup_claude_entries_by_session_message(raw_entries, &aggregation_tz);
     if include_copilot {
         match copilot::default_otel_path() {
             Some(otel_path) if otel_path.exists() => {
@@ -247,10 +248,12 @@ pub fn run(cli: Cli) -> Result<DailyReport> {
         .any(|entry| entry.source == SourceKind::Claude && !entry.daily_rows.is_empty());
     let mut daily_report = report::build_report(entries.into_iter(), &prices, cli.grouping);
     if has_claude_data {
-        daily_report.warnings.push(
+        let warning = if has_estimated_claude_compact {
+            "Claude compact boundaries omit exact API usage; compact input/output/cache-read and cost are estimated from pre/post tokens, the nearby model, and cache TTL. Other upstream local-log omissions may still undercount Claude costs."
+        } else {
             "Claude input/output tokens may be undercounted by upstream local logs; treat Claude input/output/cost as estimates."
-                .to_string(),
-        );
+        };
+        daily_report.warnings.push(warning.to_string());
     }
     daily_report.warnings.extend(copilot_otel_warnings);
     if emit_build_stats {
@@ -671,12 +674,13 @@ fn dedup_claude_entries_by_session_message(
 }
 
 fn compare_claude_dedup_candidate(a: &ClaudeDedupCandidate, b: &ClaudeDedupCandidate) -> Ordering {
-    // Conflict resolution order: total, then output, then timestamp, then prefer non-subagent file.
-    // 冲突选择顺序：先 total，再 output，再时间戳，最后优先非 subagent 文件。
-    a.row
-        .usage
-        .total
-        .cmp(&b.row.usage.total)
+    // Prefer exact usage over a compact estimate, then compare total, output, timestamp,
+    // and finally prefer the non-subagent file.
+    // 先优先精确 usage 而不是 compact 估算，再比较 total、output、时间戳，
+    // 最后优先非 subagent 文件。
+    (!a.row.estimated)
+        .cmp(&(!b.row.estimated))
+        .then_with(|| a.row.usage.total.cmp(&b.row.usage.total))
         .then_with(|| a.row.usage.output.cmp(&b.row.usage.output))
         .then_with(|| a.row.timestamp.cmp(&b.row.timestamp))
         .then_with(|| (!a.from_subagent_file).cmp(&(!b.from_subagent_file)))
@@ -873,6 +877,36 @@ fn trim_entries_to_latest_month(entries: &mut [FileCacheEntry]) {
     }
 }
 
+fn has_estimated_claude_compact_in_range(
+    entries: &[FileCacheEntry],
+    aggregation_tz: &AggregationTz,
+    include_all: bool,
+) -> bool {
+    let cutoff = if include_all {
+        None
+    } else {
+        entries
+            .iter()
+            .flat_map(|entry| entry.daily_rows.iter().map(|row| row.date))
+            .max()
+            .map(|latest_date| {
+                latest_date
+                    .checked_sub_days(Days::new(29))
+                    .unwrap_or(latest_date)
+            })
+    };
+    entries
+        .iter()
+        .filter(|entry| entry.source == SourceKind::Claude)
+        .flat_map(|entry| entry.claude_message_rows.iter())
+        .any(|row| {
+            row.estimated
+                && cutoff
+                    .map(|date| aggregation_tz.date_for(row.timestamp) >= date)
+                    .unwrap_or(true)
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -1017,6 +1051,40 @@ mod tests {
     }
 
     #[test]
+    fn prefers_exact_compact_usage_over_a_larger_estimate() {
+        let tz = AggregationTz::parse(Some("UTC")).unwrap();
+        let session = "11111111-1111-1111-1111-111111111111";
+        let mut estimated = message_row(
+            "compact:boundary-1",
+            "2026-03-01T00:00:00Z",
+            "/repo/demo",
+            "sonnet-4-6",
+            usage(50, 50, 100),
+        );
+        estimated.estimated = true;
+        let exact = message_row(
+            "compact:boundary-1",
+            "2026-03-01T00:00:00Z",
+            "/repo/demo",
+            "sonnet-4-6",
+            usage(5, 5, 10),
+        );
+        let entries = vec![
+            claude_entry(
+                format!("/tmp/.claude/projects/demo/{session}/estimate.jsonl"),
+                vec![estimated],
+            ),
+            claude_entry(
+                format!("/tmp/.claude/projects/demo/{session}/exact.jsonl"),
+                vec![exact],
+            ),
+        ];
+
+        let deduped = dedup_claude_entries_by_session_message(entries, &tz);
+        assert_eq!(deduped[0].daily_rows[0].usage.total, 10);
+    }
+
+    #[test]
     fn prefers_non_subagent_when_usage_and_timestamp_tie() {
         let tz = AggregationTz::parse(Some("UTC")).unwrap();
         let session = "11111111-1111-1111-1111-111111111111";
@@ -1156,6 +1224,7 @@ mod tests {
             project: project.to_string(),
             model: model.to_string(),
             usage,
+            estimated: false,
         }
     }
 
