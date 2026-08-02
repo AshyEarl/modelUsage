@@ -1,12 +1,12 @@
 {
   "version": 1,
-  "updated_at": "2026-07-27T00:00:00Z",
+  "updated_at": "2026-08-02T00:00:00Z",
   "models": {
     "fable-5": {
       "input_cost_per_mtoken": 10.0,
       "output_cost_per_mtoken": 50.0,
       "cache_write_5m_cost_per_mtoken": 12.5,
-      "cache_write_1h_cost_per_mtoken": null,
+      "cache_write_1h_cost_per_mtoken": 20.0,
       "cache_read_cost_per_mtoken": 1.0
     },
     "haiku-4-5": {
@@ -31,11 +31,11 @@
       "cache_read_cost_per_mtoken": 0.3
     },
     "sonnet-5": {
-      "input_cost_per_mtoken": 2.0,
-      "output_cost_per_mtoken": 10.0,
-      "cache_write_5m_cost_per_mtoken": 2.5,
-      "cache_write_1h_cost_per_mtoken": 4.0,
-      "cache_read_cost_per_mtoken": 0.2
+      "input_cost_per_mtoken": 3.0,
+      "output_cost_per_mtoken": 15.0,
+      "cache_write_5m_cost_per_mtoken": 3.75,
+      "cache_write_1h_cost_per_mtoken": 6.0,
+      "cache_read_cost_per_mtoken": 0.3
     },
     "opus-4-5": {
       "input_cost_per_mtoken": 5.0,

@@ -255,7 +255,7 @@ mod tests {
         assert_eq!(price.input_cost_per_mtoken, 10.0);
         assert_eq!(price.output_cost_per_mtoken, 50.0);
         assert_eq!(price.cache_write_5m_cost_per_mtoken, Some(12.5));
-        assert_eq!(price.cache_write_1h_cost_per_mtoken, None);
+        assert_eq!(price.cache_write_1h_cost_per_mtoken, Some(20.0));
         assert_eq!(price.cache_read_cost_per_mtoken, Some(1.0));
     }
 
@@ -281,16 +281,16 @@ mod tests {
     }
 
     #[test]
-    fn has_sonnet_5_introductory_prices() {
+    fn has_sonnet_5_standard_prices() {
         let prices = load_bundled_prices().unwrap();
         let price = prices
             .models
             .get("sonnet-5")
             .unwrap_or_else(|| panic!("missing model: sonnet-5"));
-        assert_eq!(price.input_cost_per_mtoken, 2.0);
-        assert_eq!(price.output_cost_per_mtoken, 10.0);
-        assert_eq!(price.cache_write_5m_cost_per_mtoken, Some(2.5));
-        assert_eq!(price.cache_write_1h_cost_per_mtoken, Some(4.0));
-        assert_eq!(price.cache_read_cost_per_mtoken, Some(0.2));
+        assert_eq!(price.input_cost_per_mtoken, 3.0);
+        assert_eq!(price.output_cost_per_mtoken, 15.0);
+        assert_eq!(price.cache_write_5m_cost_per_mtoken, Some(3.75));
+        assert_eq!(price.cache_write_1h_cost_per_mtoken, Some(6.0));
+        assert_eq!(price.cache_read_cost_per_mtoken, Some(0.3));
     }
 }

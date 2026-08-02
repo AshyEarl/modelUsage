@@ -62,6 +62,8 @@ As of **2026-06-10**, Anthropic / Claude pricing was manually verified from:
 
 As of **2026-07-27**, `opus-5` was added from the official Claude API pricing page. It shares the same per-MTok rates as the `opus-4-x` family: input $5, output $25, 5m cache write $6.25, 1h cache write $10, cache read $0.50.
 
+As of **2026-08-02**, two Claude price corrections were applied. `sonnet-5` was updated to its standard rates (input $3, output $15, 5m cache write $3.75, 1h cache write $6, cache read $0.30) because Claude Code's `/cost` was observed billing at the standard rates even before September 1. `fable-5` 1h cache write was filled in at $20 per the official pricing page (previously `N/A`).
+
 As of **2026-06-09**, Kimi, MiniMax, and GLM pricing was manually verified from:
 
 - Kimi K2.6 pricing  
@@ -82,11 +84,11 @@ As of **2026-07-09**, `glm-5.2` (new) was added from the official BigModel prici
 
 ### Claude
 
-- `fable-5` (1h prompt-cache write price is `N/A` until Anthropic publishes it)
+- `fable-5`
 - `haiku-4-5`
 - `sonnet-4-5`
 - `sonnet-4-6`
-- `sonnet-5` (introductory pricing through Aug 31, 2026; standard $3/$15 thereafter)
+- `sonnet-5` (standard pricing: $3/$15/$3.75/$6/$0.3)
 - `opus-4-5`
 - `opus-4-6`
 - `opus-4-7`
