@@ -1,7 +1,14 @@
 {
   "version": 1,
-  "updated_at": "2026-08-02T00:00:00Z",
+  "updated_at": "2026-09-02T00:00:00Z",
   "models": {
+    "fable-5-1": {
+      "input_cost_per_mtoken": 10.0,
+      "output_cost_per_mtoken": 50.0,
+      "cache_write_5m_cost_per_mtoken": 12.5,
+      "cache_write_1h_cost_per_mtoken": 20.0,
+      "cache_read_cost_per_mtoken": 0.25
+    },
     "fable-5": {
       "input_cost_per_mtoken": 10.0,
       "output_cost_per_mtoken": 50.0,
