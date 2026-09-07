@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-09-02T00:00:00Z",
+  "updated_at": "2026-09-07T00:00:00Z",
   "models": {
     "fable-5-1": {
       "input_cost_per_mtoken": 10.0,
@@ -197,6 +197,13 @@
       "cache_write_5m_cost_per_mtoken": null,
       "cache_write_1h_cost_per_mtoken": null,
       "cache_read_cost_per_mtoken": 0.1
+    },
+    "gpt-6-astra": {
+      "input_cost_per_mtoken": 10.0,
+      "output_cost_per_mtoken": 50.0,
+      "cache_write_5m_cost_per_mtoken": null,
+      "cache_write_1h_cost_per_mtoken": null,
+      "cache_read_cost_per_mtoken": 1.0
     },
     "codex-mini-latest": {
       "input_cost_per_mtoken": 1.5,

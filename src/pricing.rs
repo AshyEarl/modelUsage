@@ -206,6 +206,18 @@ mod tests {
     }
 
     #[test]
+    fn has_gpt_6_astra_official_prices() {
+        let prices = load_bundled_prices().unwrap();
+        let price = prices
+            .models
+            .get("gpt-6-astra")
+            .unwrap_or_else(|| panic!("missing model: gpt-6-astra"));
+        assert_eq!(price.input_cost_per_mtoken, 10.0);
+        assert_eq!(price.output_cost_per_mtoken, 50.0);
+        assert_eq!(price.cache_read_cost_per_mtoken, Some(1.0));
+    }
+
+    #[test]
     fn has_new_oss_models_from_claude_usage() {
         let prices = load_bundled_prices().unwrap();
         for (model, input, output, cache_read) in [
