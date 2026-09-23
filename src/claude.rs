@@ -452,6 +452,11 @@ mod tests {
         );
         assert_eq!(normalize_claude_model("claude-opus-4-6"), "opus-4-6");
         assert_eq!(normalize_claude_model("claude-opus-5"), "opus-5");
+        assert_eq!(normalize_claude_model("claude-opus-5-5"), "opus-5-5");
+        assert_eq!(
+            normalize_claude_model("claude-opus-5-5-20260923"),
+            "opus-5-5"
+        );
         assert_eq!(
             normalize_claude_model("claude-opus-5-20260727"),
             "opus-5"
