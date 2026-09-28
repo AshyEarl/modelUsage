@@ -29,6 +29,7 @@ pub fn parse_file_detailed(
     let mut reader = BufReader::new(file);
     let mut line = String::new();
     let mut unique_messages: BTreeMap<String, (UsageEvent, bool)> = BTreeMap::new();
+    let mut advisor_events: BTreeMap<String, Vec<(String, UsageEvent)>> = BTreeMap::new();
     let mut compact_records = Vec::new();
     let mut daily: BTreeMap<(NaiveDate, String, String), UsageTotals> = BTreeMap::new();
     let mut record_no: u64 = 0;
@@ -63,9 +64,13 @@ pub fn parse_file_detailed(
                     compact_records.push(compact);
                     continue;
                 }
-                let Some((message_key, event)) = parse_event(record) else {
+                let Some((message_key, event, advisors)) = parse_event(record) else {
                     continue;
                 };
+                // Streaming writes the same message id several times; keep the advisor
+                // iterations from the last record, just like the main usage.
+                // 流式输出会多次写同一个 message id；advisor 迭代与主 usage 一样只保留最后一条。
+                advisor_events.insert(message_key.clone(), advisors);
                 unique_messages.insert(message_key, (event, false));
             }
             Err(err) => {
@@ -94,6 +99,13 @@ pub fn parse_file_detailed(
     drop(context_events);
     for (message_key, event, estimated) in compact_events {
         unique_messages.insert(message_key, (event, estimated));
+    }
+    // Advisor rows are merged after compact synthesis so they never act as compact context:
+    // they reuse the parent timestamp but carry another model and no cache activity.
+    // advisor 行在 compact 估算之后再合并，避免被当成 compact 上下文：它们沿用父消息时间，
+    // 但模型不同且没有缓存读写。
+    for (message_key, event) in advisor_events.into_values().flatten() {
+        unique_messages.insert(message_key, (event, false));
     }
 
     let unique_message_count = unique_messages.len();
@@ -171,6 +183,16 @@ struct ClaudeUsage {
     cache_creation_input_tokens: Option<u64>,
     total_tokens: Option<u64>,
     cache_creation: Option<ClaudeCacheCreation>,
+    iterations: Option<Vec<ClaudeUsageIteration>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaudeUsageIteration {
+    #[serde(rename = "type")]
+    iteration_type: Option<String>,
+    model: Option<String>,
+    #[serde(flatten)]
+    usage: ClaudeUsage,
 }
 
 #[derive(Debug, Deserialize)]
@@ -204,7 +226,7 @@ struct ClaudeCompactRecord {
     exact_usage: Option<UsageTotals>,
 }
 
-fn parse_event(value: ClaudeRecord) -> Option<(String, UsageEvent)> {
+fn parse_event(value: ClaudeRecord) -> Option<(String, UsageEvent, Vec<(String, UsageEvent)>)> {
     let timestamp = parse_timestamp(value.timestamp.as_deref()?)?;
     let message = value.message?;
     let raw_model = message.model?.to_string();
@@ -215,17 +237,64 @@ fn parse_event(value: ClaudeRecord) -> Option<(String, UsageEvent)> {
     let usage = message.usage?;
 
     let message_key = message.id.or(value.uuid)?;
+    let project = value.cwd.unwrap_or_else(|| "<unknown-project>".to_string());
+    let advisors = advisor_events(&message_key, timestamp, &project, &raw_model, &usage);
     Some((
         message_key,
         UsageEvent {
             source: crate::model::SourceKind::Claude,
             timestamp,
-            project: value.cwd.unwrap_or_else(|| "<unknown-project>".to_string()),
+            project,
             raw_model,
             normalized_model,
             usage: usage_totals_from_claude_usage(&usage),
         },
+        advisors,
     ))
+}
+
+/// Top-level Claude usage only sums the executor's `message` iterations. Advisor sub-inferences are
+/// billed separately at the advisor model's rates and appear only as `advisor_message` iterations,
+/// so each one becomes its own usage row keyed by the parent message id and iteration index.
+/// Claude 顶层 usage 只累加执行模型的 `message` 迭代。advisor 子推理按 advisor 模型单独计费，
+/// 只以 `advisor_message` 迭代出现，因此每个迭代按父 message id 加序号生成独立的 usage 行。
+fn advisor_events(
+    message_key: &str,
+    timestamp: DateTime<Utc>,
+    project: &str,
+    parent_model: &str,
+    usage: &ClaudeUsage,
+) -> Vec<(String, UsageEvent)> {
+    let Some(iterations) = usage.iterations.as_ref() else {
+        return Vec::new();
+    };
+    iterations
+        .iter()
+        .enumerate()
+        .filter(|(_, iteration)| iteration.iteration_type.as_deref() == Some("advisor_message"))
+        .filter_map(|(index, iteration)| {
+            let raw_model = iteration
+                .model
+                .as_deref()
+                .unwrap_or(parent_model)
+                .to_string();
+            let normalized_model = normalize_claude_model(&raw_model);
+            if normalized_model == "<synthetic>" {
+                return None;
+            }
+            Some((
+                format!("{message_key}:advisor:{index}"),
+                UsageEvent {
+                    source: crate::model::SourceKind::Claude,
+                    timestamp,
+                    project: project.to_string(),
+                    raw_model,
+                    normalized_model,
+                    usage: usage_totals_from_claude_usage(&iteration.usage),
+                },
+            ))
+        })
+        .collect()
 }
 
 fn parse_compact_record(value: &ClaudeRecord) -> Option<ClaudeCompactRecord> {
@@ -457,14 +526,8 @@ mod tests {
             normalize_claude_model("claude-opus-5-5-20260923"),
             "opus-5-5"
         );
-        assert_eq!(
-            normalize_claude_model("claude-opus-5-20260727"),
-            "opus-5"
-        );
-        assert_eq!(
-            normalize_claude_model("claude-fable-5-20260601"),
-            "fable-5"
-        );
+        assert_eq!(normalize_claude_model("claude-opus-5-20260727"), "opus-5");
+        assert_eq!(normalize_claude_model("claude-fable-5-20260601"), "fable-5");
         assert_eq!(normalize_claude_model("claude-fable-5"), "fable-5");
         assert_eq!(
             normalize_claude_model("claude-fable-5-1-20260901"),
@@ -738,6 +801,104 @@ mod tests {
         assert_eq!(compact.usage.output, 34);
         assert_eq!(compact.usage.cache_read, 56);
         assert_eq!(compact.usage.total, 102);
+    }
+
+    #[test]
+    fn counts_advisor_iterations_as_separate_model_rows() {
+        let iteration = |kind: &str,
+                         model: Option<&str>,
+                         input: u64,
+                         output: u64,
+                         read: u64,
+                         write: u64| {
+            let mut value = json!({
+                "type": kind,
+                "input_tokens": input,
+                "output_tokens": output,
+                "cache_read_input_tokens": read,
+                "cache_creation_input_tokens": write,
+                "cache_creation": {"ephemeral_5m_input_tokens": 0, "ephemeral_1h_input_tokens": write}
+            });
+            if let Some(model) = model {
+                value["model"] = json!(model);
+            }
+            value
+        };
+        let record = |ts: &str, iterations: Vec<Value>| {
+            json!({
+                "timestamp": ts,
+                "cwd": "/repo/demo",
+                "message": {
+                    "id": "msg-advised",
+                    "model": "claude-opus-5-5",
+                    "usage": {
+                        "input_tokens": 4,
+                        "output_tokens": 1226,
+                        "cache_read_input_tokens": 804369,
+                        "cache_creation_input_tokens": 3767,
+                        "cache_creation": {"ephemeral_5m_input_tokens": 0, "ephemeral_1h_input_tokens": 3767},
+                        "iterations": iterations
+                    }
+                }
+            })
+        };
+        let full_iterations = vec![
+            iteration("message", None, 2, 900, 401290, 1789),
+            iteration(
+                "advisor_message",
+                Some("claude-fable-5-1"),
+                408556,
+                3709,
+                0,
+                0,
+            ),
+            iteration("message", None, 2, 326, 403079, 1978),
+        ];
+        // The streamed duplicate of the same message id must not double count the advisor.
+        // 同一 message id 的流式重复记录不能让 advisor 被重复计算。
+        let path = write_temp_jsonl(&[
+            record("2026-03-01T00:00:00Z", full_iterations.clone()),
+            record("2026-03-01T00:00:01Z", full_iterations),
+        ]);
+
+        let parsed =
+            parse_file_detailed(&path, &AggregationTz::parse(Some("UTC")).unwrap()).unwrap();
+        let _ = fs::remove_file(&path);
+        assert_eq!(parsed.message_rows.len(), 2);
+
+        let main = parsed
+            .message_rows
+            .iter()
+            .find(|row| row.message_key == "msg-advised")
+            .unwrap();
+        assert_eq!(main.model, "opus-5-5");
+        assert_eq!(main.usage.input, 4);
+        assert_eq!(main.usage.output, 1226);
+        assert_eq!(main.usage.cache_read, 804369);
+        assert_eq!(main.usage.cache_write_1h, 3767);
+
+        let advisor = parsed
+            .message_rows
+            .iter()
+            .find(|row| row.message_key == "msg-advised:advisor:1")
+            .unwrap();
+        assert!(!advisor.estimated);
+        assert_eq!(advisor.model, "fable-5-1");
+        assert_eq!(advisor.project, "/repo/demo");
+        assert_eq!(advisor.usage.input, 408556);
+        assert_eq!(advisor.usage.output, 3709);
+        assert_eq!(advisor.usage.cache_read, 0);
+        assert_eq!(advisor.usage.cache_write(), 0);
+        assert_eq!(advisor.usage.total, 408556 + 3709);
+
+        assert_eq!(parsed.daily_rows.len(), 2);
+        let main_daily = parsed
+            .daily_rows
+            .iter()
+            .find(|row| row.model == "opus-5-5")
+            .unwrap();
+        assert_eq!(main_daily.usage.input, 4);
+        assert_eq!(main_daily.usage.output, 1226);
     }
 
     #[test]

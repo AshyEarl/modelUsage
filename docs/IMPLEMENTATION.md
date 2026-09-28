@@ -114,6 +114,11 @@ Notes:
   output estimate. The model comes from an explicit boundary model when available, then a
   response shortly after the boundary, then the latest prior response. Estimated compact
   rows produce a report warning.
+- Claude top-level `usage` only sums the executor's `type: "message"` iterations. Each
+  `type: "advisor_message"` iteration in `usage.iterations` becomes its own usage row keyed
+  `<message id>:advisor:<index>`, using the iteration's `model` (falling back to the parent
+  model). Advisor rows are merged after compact estimation so they are never used as compact
+  context.
 - Codex-only reports hide `Cache Write` because Codex logs have no stable cache-write field.
 - Codex `Input` is non-cached input (aligned with `ccusage-codex`).
 - Codex `Total Tokens` is `Input + Output + Cache Read`.

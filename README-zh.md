@@ -103,6 +103,7 @@ modelUsage --update        # 下载并替换当前二进制
 - Copilot 的 `cache write` 和运行中会话用量可通过 OTel JSONL 交叉补齐。`modelUsage` 默认先读 `COPILOT_OTEL_FILE_EXPORTER_PATH`，未设置时再尝试 `~/.copilot/otel.jsonl`。
 - OpenCode 的用量来自其会话数据库 `~/.local/share/opencode/opencode.db`（即 `opencode db path`）；以只读方式打开，不会阻塞正在运行的 OpenCode。成本由本地 `pricing/official-pricing.json` 计算，因此没有 token 单价的套餐 profile 模型（如 `glm-5.2`）会显示 `N/A`。
 - Claude 的 compact 调用会纳入统计。如果 `compact_boundary` 没有精确 API usage，`modelUsage` 会根据 `preTokens` / `postTokens`、邻近消息的模型以及日志里的 5 分钟或 1 小时缓存有效期进行估算，并输出 warning。
+- Claude 的 advisor 工具调用会纳入统计。它的 token 不包含在消息顶层 `usage` 里；`usage.iterations` 中每个 `advisor_message` 会按 advisor 自己的模型（可能与主模型不同）单独计为一行。未完成就被中断的 advisor 调用不会在日志里留下 usage，因此无法统计。
 
 推荐这样启动 Copilot CLI，以便拿到当前能拿到的最完整 Copilot 统计：
 

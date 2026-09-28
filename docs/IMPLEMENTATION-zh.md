@@ -111,6 +111,10 @@ OpenCode 把所有会话放在单个 SQLite 库里，而不是每个会话一个
   `preTokens` 拆成普通 input 和 cache read，并把 `postTokens` 作为 compact output
   的估算值。模型优先取 boundary 自带值，其次取 boundary 后短时间内的响应，最后取
   压缩前最近一次响应。只要存在估算 compact 行，报表就会输出 warning。
+- Claude 顶层 `usage` 只累加执行模型的 `type: "message"` 迭代。`usage.iterations` 中每个
+  `type: "advisor_message"` 迭代会生成独立 usage 行，key 为 `<message id>:advisor:<序号>`，
+  模型取迭代自带的 `model`（缺失时回退到父消息模型）。advisor 行在 compact 估算之后才合并，
+  不会被当作 compact 的上下文。
 - Codex-only 报表会隐藏 `Cache Write`，因为 Codex 本地日志没有稳定可统计的 cache write 字段。
 - Codex 的 `Input` 显示的是“非缓存输入”，和 `ccusage-codex` 对齐。
 - Codex 的 `Total Tokens` 显示的是 `Input + Output + Cache Read`。
