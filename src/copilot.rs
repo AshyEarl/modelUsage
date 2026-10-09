@@ -185,8 +185,7 @@ pub fn parse_file_detailed(
                     }
                     "subagent.completed" => {
                         if let Some(data) = event.data {
-                            if let (Some(model_raw), Some(tokens)) =
-                                (data.model, data.total_tokens)
+                            if let (Some(model_raw), Some(tokens)) = (data.model, data.total_tokens)
                             {
                                 if tokens > 0 {
                                     let model = Some(normalize_copilot_model(&model_raw));

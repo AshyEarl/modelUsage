@@ -52,7 +52,10 @@ pub fn parse_db(path: &Path, aggregation_tz: &AggregationTz) -> Result<Vec<FileD
             Ok(Some(v)) => v,
             _ => continue,
         };
-        let time_ms: i64 = row.get::<_, Option<i64>>(1).unwrap_or_default().unwrap_or(0);
+        let time_ms: i64 = row
+            .get::<_, Option<i64>>(1)
+            .unwrap_or_default()
+            .unwrap_or(0);
 
         let value: Value = match serde_json::from_str(&data_raw) {
             Ok(v) => v,
@@ -194,7 +197,10 @@ mod tests {
     fn trims_and_strips_provider_prefix() {
         assert_eq!(normalize_opencode_model("glm-5.2"), "glm-5.2");
         assert_eq!(normalize_opencode_model(" glm-5.1 "), "glm-5.1");
-        assert_eq!(normalize_opencode_model("volcengine-plan/glm-5.2"), "glm-5.2");
+        assert_eq!(
+            normalize_opencode_model("volcengine-plan/glm-5.2"),
+            "glm-5.2"
+        );
     }
 
     #[test]
@@ -227,7 +233,15 @@ mod tests {
     fn honors_aggregation_timezone_for_day_bucket() {
         // 2026-07-08T20:30:00Z is 2026-07-09 04:30 in UTC+8.
         let path = write_temp_db(&[assistant_row(
-            1783542600000, "glm-5.2", "/repo/a", 10, 4, 0, 0, 0, 14,
+            1783542600000,
+            "glm-5.2",
+            "/repo/a",
+            10,
+            4,
+            0,
+            0,
+            0,
+            14,
         )]);
         let tz_utc = AggregationTz::parse(Some("UTC")).unwrap();
         let tz_plus8 = AggregationTz::parse(Some("UTC+8")).unwrap();
@@ -295,9 +309,7 @@ mod tests {
     }
 
     fn user_row(time_created_ms: i64, cwd: &str) -> (&'static str, i64) {
-        let data = format!(
-            "{{\"role\":\"user\",\"path\":{{\"cwd\":\"{cwd}\"}}}}"
-        );
+        let data = format!("{{\"role\":\"user\",\"path\":{{\"cwd\":\"{cwd}\"}}}}");
         let leaked: &'static str = Box::leak(data.into_boxed_str());
         (leaked, time_created_ms)
     }

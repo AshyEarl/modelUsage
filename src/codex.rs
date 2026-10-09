@@ -463,12 +463,12 @@ fn daily_rows_from_tokens<'a>(rows: impl Iterator<Item = &'a CodexTokenRow>) -> 
 #[cfg(test)]
 mod tests {
     use super::{
-        normalize_codex_model, parse_file_detailed, reconcile_forked_entries, ParsedCodexFile,
+        ParsedCodexFile, normalize_codex_model, parse_file_detailed, reconcile_forked_entries,
     };
     use crate::cache::parser_version;
     use crate::model::{FileCacheEntry, SourceKind};
     use crate::timezone::AggregationTz;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};

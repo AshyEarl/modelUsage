@@ -516,7 +516,7 @@ fn scan_opencode(
                 parsed_files: 0,
                 invalidations: FileInvalidationStats::default(),
                 parse_dirs: Vec::new(),
-            })
+            });
         }
     };
     let key = db_path.to_string_lossy().to_string();
