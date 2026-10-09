@@ -66,6 +66,8 @@ As of **2026-08-02**, two Claude price corrections were applied. `sonnet-5` was 
 
 As of **2026-09-23**, `opus-5-5` (Claude Opus 5.5) was added from the official Claude API pricing. It is priced below `opus-5`: input $4, output $20, 5m cache write $5, 1h cache write $8, cache read $0.20 per MTok. Fast mode ($8/$40) is not modeled separately.
 
+As of **2026-10-09**, `sonnet-5-5` (Claude Sonnet 5.5) was added from the official Claude API pricing: input $2, output $10, 5m cache write $2.50, 1h cache write $4, cache read $0.10 per MTok (cache hits are 0.05x base input on this model).
+
 As of **2026-06-09**, Kimi, MiniMax, and GLM pricing was manually verified from:
 
 - Kimi K2.6 pricing  
@@ -91,6 +93,7 @@ As of **2026-07-09**, `glm-5.2` (new) was added from the official BigModel prici
 - `sonnet-4-5`
 - `sonnet-4-6`
 - `sonnet-5` (standard pricing: $3/$15/$3.75/$6/$0.3)
+- `sonnet-5-5`
 - `opus-4-5`
 - `opus-4-6`
 - `opus-4-7`

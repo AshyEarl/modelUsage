@@ -535,6 +535,11 @@ mod tests {
         );
         assert_eq!(normalize_claude_model("claude-fable-5-1"), "fable-5-1");
         assert_eq!(normalize_claude_model("claude-sonnet-5"), "sonnet-5");
+        assert_eq!(normalize_claude_model("claude-sonnet-5-5"), "sonnet-5-5");
+        assert_eq!(
+            normalize_claude_model("claude-sonnet-5-5-20261009"),
+            "sonnet-5-5"
+        );
         assert_eq!(
             normalize_claude_model("claude-sonnet-5-20260701"),
             "sonnet-5"

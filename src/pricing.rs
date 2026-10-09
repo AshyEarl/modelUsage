@@ -258,6 +258,20 @@ mod tests {
     }
 
     #[test]
+    fn has_sonnet_5_5_official_prices() {
+        let prices = load_bundled_prices().unwrap();
+        let price = prices
+            .models
+            .get("sonnet-5-5")
+            .unwrap_or_else(|| panic!("missing model: sonnet-5-5"));
+        assert_eq!(price.input_cost_per_mtoken, 2.0);
+        assert_eq!(price.output_cost_per_mtoken, 10.0);
+        assert_eq!(price.cache_write_5m_cost_per_mtoken, Some(2.5));
+        assert_eq!(price.cache_write_1h_cost_per_mtoken, Some(4.0));
+        assert_eq!(price.cache_read_cost_per_mtoken, Some(0.1));
+    }
+
+    #[test]
     fn has_opus_5_5_official_prices() {
         let prices = load_bundled_prices().unwrap();
         let price = prices
@@ -306,6 +320,7 @@ mod tests {
             ("haiku-4-5", 2.0),
             ("sonnet-4-5", 6.0),
             ("sonnet-4-6", 6.0),
+            ("sonnet-5-5", 4.0),
             ("opus-4-5", 10.0),
             ("opus-4-6", 10.0),
             ("opus-4-7", 10.0),
