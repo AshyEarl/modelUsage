@@ -102,6 +102,7 @@ Timezone accepts:
 - Copilot CLI settled usage is read from `~/.copilot/session-state/*/events.jsonl` (requires Copilot CLI v0.0.422+).
 - Copilot cache write and in-progress session usage can be cross-filled from OTel JSONL. By default `modelUsage` checks `COPILOT_OTEL_FILE_EXPORTER_PATH`, then falls back to `~/.copilot/otel.jsonl`.
 - OpenCode usage is read from its session database at `~/.local/share/opencode/opencode.db` (via `opencode db path`); the db is opened read-only so a running OpenCode is never blocked. Cost is computed locally from `pricing/official-pricing.json`, so plan-profile models without a token price (e.g. `glm-5.2`) show `N/A`.
+- GPT text/code pricing covers GPT-6 Sol, GPT-6.1 Sol, GPT-6 Luna, GPT-5 variants, and GPT-4.x/legacy models listed in [PRICING.md](PRICING.md). Model versions remain distinct. Costs use the current bundled Standard short-context token rates; service-tier, long-context, and tool-call surcharges are not included, and unverified model prices remain `N/A`.
 - Claude compact calls are included. When a `compact_boundary` lacks exact API usage, `modelUsage` estimates it from `preTokens` / `postTokens`, the nearby model, and the recorded 5-minute or 1-hour cache lifetime, then emits a warning.
 - Claude advisor tool calls are included. Their tokens are not part of the message's top-level `usage`; each `advisor_message` entry in `usage.iterations` is counted as its own row under the advisor's model (which can differ from the main model). Advisor calls interrupted before completion leave no usage in the log and cannot be counted.
 
@@ -138,6 +139,6 @@ COPILOT_OTEL_FILE_EXPORTER_PATH=$HOME/.copilot/otel.jsonl copilot
 
 ## Versioning
 
-- Current version: `0.1.23`
+- Current version: `0.1.36`
 - Source of truth: `Cargo.toml`
 - Tag format: `vX.Y.Z`

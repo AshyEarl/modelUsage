@@ -97,7 +97,8 @@ pub fn known_unpriced_models<'a>(
 
 #[cfg(test)]
 mod tests {
-    use super::{compute_cost, load_bundled_prices};
+    use super::{compute_cost, known_unpriced_models, load_bundled_prices};
+    use crate::codex::normalize_codex_model;
     use crate::model::{SourceKind, UsageTotals};
 
     #[test]
@@ -173,9 +174,10 @@ mod tests {
             .models
             .get("gpt-5.6-sol")
             .unwrap_or_else(|| panic!("missing model: gpt-5.6-sol"));
-        assert_eq!(sol.input_cost_per_mtoken, 5.0);
-        assert_eq!(sol.output_cost_per_mtoken, 30.0);
-        assert_eq!(sol.cache_read_cost_per_mtoken, Some(0.5));
+        assert_eq!(sol.input_cost_per_mtoken, 4.0);
+        assert_eq!(sol.output_cost_per_mtoken, 20.0);
+        assert_eq!(sol.cache_read_cost_per_mtoken, Some(0.4));
+        assert_eq!(sol.cache_write_5m_cost_per_mtoken, Some(5.0));
 
         let alias = prices
             .models
@@ -187,22 +189,28 @@ mod tests {
             alias.cache_read_cost_per_mtoken,
             sol.cache_read_cost_per_mtoken
         );
+        assert_eq!(
+            alias.cache_write_5m_cost_per_mtoken,
+            sol.cache_write_5m_cost_per_mtoken
+        );
 
         let terra = prices
             .models
             .get("gpt-5.6-terra")
             .unwrap_or_else(|| panic!("missing model: gpt-5.6-terra"));
-        assert_eq!(terra.input_cost_per_mtoken, 2.5);
-        assert_eq!(terra.output_cost_per_mtoken, 15.0);
-        assert_eq!(terra.cache_read_cost_per_mtoken, Some(0.25));
+        assert_eq!(terra.input_cost_per_mtoken, 2.0);
+        assert_eq!(terra.output_cost_per_mtoken, 12.0);
+        assert_eq!(terra.cache_read_cost_per_mtoken, Some(0.2));
+        assert_eq!(terra.cache_write_5m_cost_per_mtoken, Some(2.5));
 
         let luna = prices
             .models
             .get("gpt-5.6-luna")
             .unwrap_or_else(|| panic!("missing model: gpt-5.6-luna"));
-        assert_eq!(luna.input_cost_per_mtoken, 1.0);
-        assert_eq!(luna.output_cost_per_mtoken, 6.0);
-        assert_eq!(luna.cache_read_cost_per_mtoken, Some(0.1));
+        assert_eq!(luna.input_cost_per_mtoken, 0.2);
+        assert_eq!(luna.output_cost_per_mtoken, 1.2);
+        assert_eq!(luna.cache_read_cost_per_mtoken, Some(0.02));
+        assert_eq!(luna.cache_write_5m_cost_per_mtoken, Some(0.25));
     }
 
     #[test]
@@ -215,6 +223,94 @@ mod tests {
         assert_eq!(price.input_cost_per_mtoken, 10.0);
         assert_eq!(price.output_cost_per_mtoken, 50.0);
         assert_eq!(price.cache_read_cost_per_mtoken, Some(1.0));
+        assert_eq!(price.cache_write_5m_cost_per_mtoken, Some(12.5));
+    }
+
+    #[test]
+    fn computes_cost_for_missing_gpt_text_models_without_merging_versions() {
+        let prices = load_bundled_prices().unwrap();
+        let usage = UsageTotals {
+            input: 2_000_000,
+            output: 1_000_000,
+            cache_read: 1_000_000,
+            reasoning: 500_000,
+            total: 3_000_000,
+            ..UsageTotals::default()
+        };
+        for (model, expected) in [
+            ("gpt-6-sol", 12.2),
+            ("gpt-6.1-sol", 12.1),
+            ("gpt-6-luna", 0.61),
+            ("gpt-5.1", 11.375),
+            ("gpt-5-mini", 2.275),
+            ("gpt-5-nano", 0.455),
+            ("gpt-5-pro", 150.0),
+            ("gpt-5.2-pro", 210.0),
+            ("gpt-5.4-nano", 1.47),
+            ("gpt-5.5-pro", 240.0),
+            ("gpt-5.3-chat-latest", 15.925),
+            ("gpt-5.6-cyber", 88.75),
+            ("gpt-rosalind-research", 30.5),
+            ("gpt-4.1", 10.5),
+            ("gpt-4o", 13.75),
+            ("gpt-4o-2024-05-13", 25.0),
+            ("gpt-4o-mini", 0.825),
+            ("gpt-4-turbo", 50.0),
+            ("gpt-3.5-turbo", 2.5),
+        ] {
+            let normalized = normalize_codex_model(&format!("openrouter/openai/{model}"));
+            assert_eq!(normalized, model);
+            let cost = compute_cost(SourceKind::Codex, &normalized, &usage, &prices)
+                .unwrap_or_else(|| panic!("missing price: {model}"));
+            assert!((cost - expected).abs() < 0.000001, "{model}: {cost}");
+        }
+    }
+
+    #[test]
+    fn computes_openai_cache_writes_for_other_sources() {
+        let prices = load_bundled_prices().unwrap();
+        let usage = UsageTotals {
+            input: 1_000_000,
+            output: 1_000_000,
+            cache_write_5m: 1_000_000,
+            cache_write_1h: 1_000_000,
+            cache_read: 1_000_000,
+            total: 5_000_000,
+            ..UsageTotals::default()
+        };
+        for source in [
+            SourceKind::Claude,
+            SourceKind::Copilot,
+            SourceKind::Opencode,
+        ] {
+            let cost = compute_cost(source, "gpt-6.1-sol", &usage, &prices).unwrap();
+            assert!((cost - 17.1).abs() < 0.000001, "{source:?}: {cost}");
+        }
+    }
+
+    #[test]
+    fn keeps_unverified_gpt_models_unpriced() {
+        let prices = load_bundled_prices().unwrap();
+        let models = [
+            "gpt-6-sol",
+            "gpt-6.1-sol",
+            "gpt-6-luna",
+            "gpt-99-unverified",
+        ];
+        let unpriced = known_unpriced_models(models.into_iter(), &prices);
+        assert_eq!(
+            unpriced.into_iter().collect::<Vec<_>>(),
+            ["gpt-99-unverified"]
+        );
+        assert_eq!(
+            compute_cost(
+                SourceKind::Codex,
+                "gpt-99-unverified",
+                &UsageTotals::default(),
+                &prices,
+            ),
+            None
+        );
     }
 
     #[test]

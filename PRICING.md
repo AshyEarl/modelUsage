@@ -40,7 +40,7 @@ For this project, a maintained local pricing file is more predictable.
 
 ## Official sources
 
-As of **2026-04-25**, OpenAI pricing was manually verified from:
+As of **2026-10-12**, OpenAI text/code pricing was manually verified from:
 
 - OpenAI Pricing  
   https://developers.openai.com/api/docs/pricing
@@ -52,6 +52,30 @@ Notes:
 - OpenAI exposes model APIs and usage APIs
 - I did not find a stable public official pricing API
 - pricing is therefore maintained by manually checking the official pages
+
+As of **2026-10-12**, 45 missing OpenAI text/code model IDs were added, including GPT-6 Sol, GPT-6.1 Sol, GPT-6 Luna, GPT-5 mini/nano/pro and chat variants, GPT-4.x, and officially listed legacy snapshots. Existing GPT-5.6 rates were refreshed, and published OpenAI cache-write rates were filled in.
+
+| Model | Input | Output | Cache read | Cache write |
+| --- | ---: | ---: | ---: | ---: |
+| `gpt-6-astra` | $10 | $50 | $1 | $12.50 |
+| `gpt-6-sol` | $2 | $10 | $0.20 | $2.50 |
+| `gpt-6.1-sol` | $2 | $10 | $0.10 | $2.50 |
+| `gpt-6-luna` | $0.10 | $0.50 | $0.01 | $0.125 |
+| `gpt-5.6` / `gpt-5.6-sol` | $4 | $20 | $0.40 | $5 |
+| `gpt-5.6-terra` | $2 | $12 | $0.20 | $2.50 |
+| `gpt-5.6-luna` | $0.20 | $1.20 | $0.02 | $0.25 |
+
+These are USD per million tokens at Standard short-context rates. GPT-5.6 Sol's current promotional pricing is published as available at least through November 21, 2026. The local price table applies the currently verified rates to historical usage as well; it does not select prices by usage date.
+
+OpenAI publishes a single cache-write rate for these models, without Claude's 5-minute/1-hour distinction. It is stored in `cache_write_5m_cost_per_mtoken`; `cache_write_1h_cost_per_mtoken` stays `null`, and the existing calculation falls back to the published rate for either write bucket. Codex logs currently supply cached input rather than separate cache writes, so Codex cost continues to use input, output, and cache-read rates only.
+
+Long-context uplifts, Batch/Flex/Fast/Ultrafast tiers, regional premiums, and tool-call fees are not modeled. Search models cover token costs only. Audio, image generation, and per-minute models are excluded because the current usage totals cannot distinguish their billing units.
+
+Additional official model pages used for chat and legacy prices:
+
+- [GPT-5 Chat](https://developers.openai.com/api/docs/models/gpt-5-chat-latest), [GPT-5.1 Chat](https://developers.openai.com/api/docs/models/gpt-5.1-chat-latest), [GPT-5.2 Chat](https://developers.openai.com/api/docs/models/gpt-5.2-chat-latest), [GPT-5.3 Chat](https://developers.openai.com/api/docs/models/gpt-5.3-chat-latest)
+- [ChatGPT-4o](https://developers.openai.com/api/docs/models/chatgpt-4o-latest), [GPT-4](https://developers.openai.com/api/docs/models/gpt-4), [GPT-4 Turbo](https://developers.openai.com/api/docs/models/gpt-4-turbo), [GPT-4 Turbo Preview](https://developers.openai.com/api/docs/models/gpt-4-turbo-preview), [GPT-4.5 Preview](https://developers.openai.com/api/docs/models/gpt-4.5-preview)
+- [GPT-4o Search Preview](https://developers.openai.com/api/docs/models/gpt-4o-search-preview), [GPT-4o Mini Search Preview](https://developers.openai.com/api/docs/models/gpt-4o-mini-search-preview)
 
 As of **2026-06-10**, Anthropic / Claude pricing was manually verified from:
 
@@ -103,22 +127,71 @@ As of **2026-07-09**, `glm-5.2` (new) was added from the official BigModel prici
 
 ### OpenAI / Codex
 
-- `codex-mini-latest` (deprecated alias, still priced for historical usage)
+Deprecated IDs remain priced for historical usage, including `codex-mini-latest`. `gpt-5.6` is priced as the official alias of `gpt-5.6-sol` while keeping its own report row.
+
+- `chat-latest`
+- `chatgpt-4o-latest`
+- `codex-mini-latest`
+- `gpt-3.5-turbo`
+- `gpt-3.5-turbo-0125`
+- `gpt-3.5-turbo-1106`
+- `gpt-3.5-turbo-instruct`
+- `gpt-4`
+- `gpt-4-0125-preview`
+- `gpt-4-0314`
+- `gpt-4-0613`
+- `gpt-4-1106-vision-preview`
+- `gpt-4-turbo`
+- `gpt-4-turbo-2024-04-09`
+- `gpt-4-turbo-preview`
+- `gpt-4.1`
+- `gpt-4.1-mini`
+- `gpt-4.1-nano`
+- `gpt-4.5-preview`
+- `gpt-4.5-preview-2025-02-27`
+- `gpt-4o`
+- `gpt-4o-2024-05-13`
+- `gpt-4o-mini`
+- `gpt-4o-mini-search-preview`
+- `gpt-4o-mini-search-preview-2025-03-11`
+- `gpt-4o-search-preview`
+- `gpt-4o-search-preview-2025-03-11`
 - `gpt-5`
+- `gpt-5-chat-latest`
 - `gpt-5-codex`
+- `gpt-5-mini`
+- `gpt-5-nano`
+- `gpt-5-pro`
+- `gpt-5-search-api`
+- `gpt-5.1`
+- `gpt-5.1-chat-latest`
 - `gpt-5.1-codex`
-- `gpt-5.1-codex-mini`
 - `gpt-5.1-codex-max`
+- `gpt-5.1-codex-mini`
 - `gpt-5.2`
+- `gpt-5.2-chat-latest`
 - `gpt-5.2-codex`
+- `gpt-5.2-pro`
+- `gpt-5.3-chat-latest`
 - `gpt-5.3-codex`
 - `gpt-5.4`
+- `gpt-5.4-mini`
+- `gpt-5.4-nano`
 - `gpt-5.4-pro`
 - `gpt-5.5`
-- `gpt-5.6` (alias for `gpt-5.6-sol`)
+- `gpt-5.5-cyber`
+- `gpt-5.5-pro`
+- `gpt-5.6`
+- `gpt-5.6-cyber`
+- `gpt-5.6-luna`
 - `gpt-5.6-sol`
 - `gpt-5.6-terra`
-- `gpt-5.6-luna`
+- `gpt-6-astra`
+- `gpt-6-luna`
+- `gpt-6-sol`
+- `gpt-6.1-sol`
+- `gpt-rosalind-discovery`
+- `gpt-rosalind-research`
 
 ### Kimi / MiniMax / GLM
 

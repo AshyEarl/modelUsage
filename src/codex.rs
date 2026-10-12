@@ -485,6 +485,17 @@ mod tests {
         assert_eq!(normalize_codex_model("gpt-5.6-terra"), "gpt-5.6-terra");
         assert_eq!(normalize_codex_model("gpt-5.6-luna"), "gpt-5.6-luna");
         assert_eq!(normalize_codex_model("gpt-5.6"), "gpt-5.6");
+        for model in [
+            "gpt-6-sol",
+            "gpt-6.1-sol",
+            "gpt-6-luna",
+            "gpt-4o-2024-05-13",
+            "gpt-99-unverified",
+        ] {
+            for prefix in ["", "openai/", "openrouter/openai/"] {
+                assert_eq!(normalize_codex_model(&format!(" {prefix}{model} ")), model);
+            }
+        }
     }
 
     #[test]

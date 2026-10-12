@@ -40,7 +40,7 @@
 
 ## 官方来源
 
-截至 **2026-04-25**，OpenAI 价格是人工从官方页面核对后写入的：
+截至 **2026-10-12**，OpenAI 文本／代码模型价格是人工从官方页面核对后写入的：
 
 - OpenAI Pricing  
   https://developers.openai.com/api/docs/pricing
@@ -52,6 +52,30 @@
 - OpenAI 有模型 API，也有 usage API
 - 但我没有查到稳定公开的官方价格 API
 - 所以这里采用“人工核对官方页面后维护本地价格表”的方式
+
+截至 **2026-10-12**，补齐 45 个缺失的 OpenAI 文本／代码模型 ID，包括 GPT-6 Sol、GPT-6.1 Sol、GPT-6 Luna、GPT-5 mini/nano/pro 与 chat 变体、GPT-4.x，以及官方列出的历史快照。同时刷新已有 GPT-5.6 系列价格，并补充已公开的 OpenAI 缓存写入价格。
+
+| 模型 | 输入 | 输出 | 缓存读取 | 缓存写入 |
+| --- | ---: | ---: | ---: | ---: |
+| `gpt-6-astra` | $10 | $50 | $1 | $12.50 |
+| `gpt-6-sol` | $2 | $10 | $0.20 | $2.50 |
+| `gpt-6.1-sol` | $2 | $10 | $0.10 | $2.50 |
+| `gpt-6-luna` | $0.10 | $0.50 | $0.01 | $0.125 |
+| `gpt-5.6` / `gpt-5.6-sol` | $4 | $20 | $0.40 | $5 |
+| `gpt-5.6-terra` | $2 | $12 | $0.20 | $2.50 |
+| `gpt-5.6-luna` | $0.20 | $1.20 | $0.02 | $0.25 |
+
+以上为 Standard 短上下文档位的每百万 token 美元价格。官方公布 GPT-5.6 Sol 当前促销价至少持续到 2026 年 11 月 21 日。本地价格表也会将当前核实的价格用于历史用量，不会按用量日期选择历史价格。
+
+OpenAI 对这些模型只公布统一的缓存写入价，没有 Claude 的 5 分钟／1 小时区分。这里将其存入 `cache_write_5m_cost_per_mtoken`，`cache_write_1h_cost_per_mtoken` 保持 `null`，现有计算逻辑会为任一写入桶回退到该官方价格。Codex 日志目前提供缓存输入而非单独的缓存写入，所以 Codex 成本仍只使用输入、输出和缓存读取价格。
+
+当前未建模长上下文加价、Batch/Flex/Fast/Ultrafast 档位、区域溢价及工具调用费。搜索模型仅计算 token 成本。音频、图像生成及按分钟计费模型不在本次范围，因为现有用量字段无法区分其计费单位。
+
+Chat 与历史型号价格另核对了以下官方模型页：
+
+- [GPT-5 Chat](https://developers.openai.com/api/docs/models/gpt-5-chat-latest)、[GPT-5.1 Chat](https://developers.openai.com/api/docs/models/gpt-5.1-chat-latest)、[GPT-5.2 Chat](https://developers.openai.com/api/docs/models/gpt-5.2-chat-latest)、[GPT-5.3 Chat](https://developers.openai.com/api/docs/models/gpt-5.3-chat-latest)
+- [ChatGPT-4o](https://developers.openai.com/api/docs/models/chatgpt-4o-latest)、[GPT-4](https://developers.openai.com/api/docs/models/gpt-4)、[GPT-4 Turbo](https://developers.openai.com/api/docs/models/gpt-4-turbo)、[GPT-4 Turbo Preview](https://developers.openai.com/api/docs/models/gpt-4-turbo-preview)、[GPT-4.5 Preview](https://developers.openai.com/api/docs/models/gpt-4.5-preview)
+- [GPT-4o Search Preview](https://developers.openai.com/api/docs/models/gpt-4o-search-preview)、[GPT-4o Mini Search Preview](https://developers.openai.com/api/docs/models/gpt-4o-mini-search-preview)
 
 截至 **2026-06-10**，Anthropic / Claude 价格是人工从官方页面核对后写入的：
 
@@ -103,22 +127,71 @@ MiniMax 和 GLM 官方价格以人民币发布。这里按 **2026-06-09 00:02:31
 
 ### OpenAI / Codex
 
-- `codex-mini-latest`（已废弃别名，保留历史计费）
+已废弃的 ID（包括 `codex-mini-latest`）仍保留价格，用于历史用量。`gpt-5.6` 按官方别名 `gpt-5.6-sol` 的价格计费，但报表行仍保持独立。
+
+- `chat-latest`
+- `chatgpt-4o-latest`
+- `codex-mini-latest`
+- `gpt-3.5-turbo`
+- `gpt-3.5-turbo-0125`
+- `gpt-3.5-turbo-1106`
+- `gpt-3.5-turbo-instruct`
+- `gpt-4`
+- `gpt-4-0125-preview`
+- `gpt-4-0314`
+- `gpt-4-0613`
+- `gpt-4-1106-vision-preview`
+- `gpt-4-turbo`
+- `gpt-4-turbo-2024-04-09`
+- `gpt-4-turbo-preview`
+- `gpt-4.1`
+- `gpt-4.1-mini`
+- `gpt-4.1-nano`
+- `gpt-4.5-preview`
+- `gpt-4.5-preview-2025-02-27`
+- `gpt-4o`
+- `gpt-4o-2024-05-13`
+- `gpt-4o-mini`
+- `gpt-4o-mini-search-preview`
+- `gpt-4o-mini-search-preview-2025-03-11`
+- `gpt-4o-search-preview`
+- `gpt-4o-search-preview-2025-03-11`
 - `gpt-5`
+- `gpt-5-chat-latest`
 - `gpt-5-codex`
+- `gpt-5-mini`
+- `gpt-5-nano`
+- `gpt-5-pro`
+- `gpt-5-search-api`
+- `gpt-5.1`
+- `gpt-5.1-chat-latest`
 - `gpt-5.1-codex`
-- `gpt-5.1-codex-mini`
 - `gpt-5.1-codex-max`
+- `gpt-5.1-codex-mini`
 - `gpt-5.2`
+- `gpt-5.2-chat-latest`
 - `gpt-5.2-codex`
+- `gpt-5.2-pro`
+- `gpt-5.3-chat-latest`
 - `gpt-5.3-codex`
 - `gpt-5.4`
+- `gpt-5.4-mini`
+- `gpt-5.4-nano`
 - `gpt-5.4-pro`
 - `gpt-5.5`
-- `gpt-5.6`（`gpt-5.6-sol` 的别名）
+- `gpt-5.5-cyber`
+- `gpt-5.5-pro`
+- `gpt-5.6`
+- `gpt-5.6-cyber`
+- `gpt-5.6-luna`
 - `gpt-5.6-sol`
 - `gpt-5.6-terra`
-- `gpt-5.6-luna`
+- `gpt-6-astra`
+- `gpt-6-luna`
+- `gpt-6-sol`
+- `gpt-6.1-sol`
+- `gpt-rosalind-discovery`
+- `gpt-rosalind-research`
 
 ### Kimi / MiniMax / GLM
 
