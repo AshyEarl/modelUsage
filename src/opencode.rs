@@ -163,6 +163,7 @@ pub fn parse_db(path: &Path, aggregation_tz: &AggregationTz) -> Result<Vec<FileD
     Ok(daily
         .into_iter()
         .map(|((date, project, model), usage)| FileDailyRow {
+            long_context: false,
             date,
             project,
             model,

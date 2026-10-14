@@ -634,6 +634,7 @@ fn canonicalize_rows(
 ) -> Vec<FileDailyRow> {
     rows.iter()
         .map(|row| FileDailyRow {
+            long_context: row.long_context,
             date: preferred_date.unwrap_or(row.date),
             project: project.to_string(),
             model: row.model.clone(),
@@ -787,6 +788,7 @@ fn rows_from_usage_map(
     daily
         .into_iter()
         .map(|((date, project, model), usage)| FileDailyRow {
+            long_context: false,
             date,
             project,
             model,
@@ -1514,6 +1516,7 @@ mod tests {
 
     fn daily_row(date: &str, project: &str, model: &str, usage: UsageTotals) -> FileDailyRow {
         FileDailyRow {
+            long_context: false,
             date: chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap(),
             project: project.to_string(),
             model: model.to_string(),

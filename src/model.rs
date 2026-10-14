@@ -73,6 +73,10 @@ pub struct FileDailyRow {
     pub project: String,
     pub model: String,
     pub usage: UsageTotals,
+    /// Keep request context tiers separate until pricing, even within the same day/model.
+    /// 即使日期和模型相同，也要保留单次请求的上下文档位，直到计价后再合并。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub long_context: bool,
 }
 
 /// Claude message-level row used for cross-file dedup within a session.
@@ -98,6 +102,8 @@ pub struct CodexTokenRow {
     pub project: String,
     pub model: String,
     pub usage: UsageTotals,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub long_context: bool,
 }
 
 /// Codex session relationships, compact fingerprints, and fork rows used for reconciliation.
@@ -201,6 +207,16 @@ pub struct ModelPrice {
     pub cache_write_5m_cost_per_mtoken: Option<f64>,
     pub cache_write_1h_cost_per_mtoken: Option<f64>,
     pub cache_read_cost_per_mtoken: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub long_context: Option<LongContextPrice>,
+}
+
+/// Published multipliers for OpenAI requests above the 272K input-token threshold.
+/// OpenAI 单次输入超过 272K token 时官方公布的计价倍率。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LongContextPrice {
+    pub input_multiplier: f64,
+    pub output_multiplier: f64,
 }
 
 /// On-disk format for the pricing cache.
@@ -242,6 +258,8 @@ pub struct ReportTotals {
 #[derive(Debug, Clone, Serialize)]
 pub struct DailyReport {
     pub grouping: ReportGrouping,
+    #[serde(skip)]
+    pub codex_only: bool,
     pub rows: Vec<DailyRow>,
     pub totals: ReportTotals,
     #[serde(skip_serializing_if = "Vec::is_empty")]

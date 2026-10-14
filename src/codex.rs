@@ -1,6 +1,7 @@
 use crate::model::{
     CodexFileDetails, CodexTokenRow, FileCacheEntry, FileDailyRow, SourceKind, UsageTotals,
 };
+use crate::pricing::OPENAI_LONG_CONTEXT_THRESHOLD;
 use crate::profile;
 use crate::timezone::AggregationTz;
 use anyhow::{Context, Result};
@@ -27,7 +28,7 @@ pub fn parse_file_detailed(path: &Path, aggregation_tz: &AggregationTz) -> Resul
     let mut current_model = String::new();
     let mut project = "<unknown-project>".to_string();
     let mut previous_total: Option<RawUsage> = None;
-    let mut daily: BTreeMap<(NaiveDate, String, String), UsageTotals> = BTreeMap::new();
+    let mut daily: BTreeMap<(NaiveDate, String, String, bool), UsageTotals> = BTreeMap::new();
     let mut record_no: u64 = 0;
     let mut parsed_records: u64 = 0;
     let mut invalid_records: u64 = 0;
@@ -118,6 +119,10 @@ pub fn parse_file_detailed(path: &Path, aggregation_tz: &AggregationTz) -> Resul
                             current_model.clone()
                         };
                         let day = aggregation_tz.date_for(timestamp);
+                        // Classify each request before aggregation; a day's total is not a context length.
+                        // 汇总前按单次请求判断档位；一天的输入总量不等于上下文长度。
+                        let long_context = last_usage.as_ref().unwrap_or(&raw_usage).input
+                            > OPENAI_LONG_CONTEXT_THRESHOLD;
                         let usage = raw_usage.into_usage_totals();
                         details
                             .token_fingerprints
@@ -128,9 +133,10 @@ pub fn parse_file_detailed(path: &Path, aggregation_tz: &AggregationTz) -> Resul
                                 project: project.clone(),
                                 model: model.clone(),
                                 usage: usage.clone(),
+                                long_context,
                             });
                         }
-                        let key = (day, project.clone(), model);
+                        let key = (day, project.clone(), model, long_context);
                         daily.entry(key).or_default().add_assign(&usage);
                     }
                     _ => {}
@@ -164,12 +170,15 @@ pub fn parse_file_detailed(path: &Path, aggregation_tz: &AggregationTz) -> Resul
 
     let daily_rows = daily
         .into_iter()
-        .map(|((date, project, model), usage)| FileDailyRow {
-            date,
-            project,
-            model,
-            usage,
-        })
+        .map(
+            |((date, project, model, long_context), usage)| FileDailyRow {
+                date,
+                project,
+                model,
+                usage,
+                long_context,
+            },
+        )
         .collect();
 
     Ok(ParsedCodexFile {
@@ -209,6 +218,8 @@ struct RawUsageWire {
     input_tokens: Option<u64>,
     cached_input_tokens: Option<u64>,
     cache_read_input_tokens: Option<u64>,
+    #[serde(alias = "cache_write_tokens")]
+    cache_write_input_tokens: Option<u64>,
     output_tokens: Option<u64>,
     reasoning_output_tokens: Option<u64>,
     total_tokens: Option<u64>,
@@ -221,7 +232,15 @@ fn choose_raw_usage(
 ) -> Option<RawUsage> {
     match (total_usage, previous_total) {
         (Some(total), Some(previous)) if !total.regressed_from(previous) => {
-            Some(total.delta(previous))
+            let mut delta = total.delta(previous);
+            // Optional write counters can disappear between snapshots without resetting the session.
+            // Use last-request writes only for a new request when cumulative writes cannot be differenced.
+            // 可选写入计数在快照间缺失不表示会话重置；
+            // 无法对写入累计值求差时，仅在有新请求的情况下使用其单次写入计数。
+            if !delta.is_zero() && delta.cache_write_input.is_none() {
+                delta.cache_write_input = last_usage.and_then(|usage| usage.cache_write_input);
+            }
+            Some(delta)
         }
         // If cumulative counters regress, likely session/state reset; keep counting via last_usage.
         // 若累计计数发生回退，通常是会话/状态重置；此时回退到 last_usage，避免漏算真实新增。
@@ -235,6 +254,7 @@ fn choose_raw_usage(
 struct RawUsage {
     input: u64,
     cached_input: u64,
+    cache_write_input: Option<u64>,
     output: u64,
     reasoning: u64,
     total: u64,
@@ -245,6 +265,10 @@ impl RawUsage {
         Self {
             input: self.input.saturating_sub(previous.input),
             cached_input: self.cached_input.saturating_sub(previous.cached_input),
+            cache_write_input: self
+                .cache_write_input
+                .zip(previous.cache_write_input)
+                .and_then(|(current, previous)| current.checked_sub(previous)),
             output: self.output.saturating_sub(previous.output),
             reasoning: self.reasoning.saturating_sub(previous.reasoning),
             total: self.total.saturating_sub(previous.total),
@@ -264,7 +288,10 @@ impl RawUsage {
             input: self.input,
             output: self.output,
             reasoning: self.reasoning,
-            cache_write_5m: 0,
+            cache_write_5m: self
+                .cache_write_input
+                .unwrap_or(0)
+                .min(self.input.saturating_sub(self.cached_input.min(self.input))),
             cache_write_1h: 0,
             // cached_input is a subset of input for Codex, so map it directly to cache_read.
             // Codex 的 cached_input 属于 input 的子集，统一映射到 cache_read。
@@ -280,6 +307,7 @@ impl RawUsage {
     fn is_zero(&self) -> bool {
         self.input == 0
             && self.cached_input == 0
+            && self.cache_write_input.unwrap_or(0) == 0
             && self.output == 0
             && self.reasoning == 0
             && self.total == 0
@@ -290,8 +318,13 @@ fn token_fingerprint(last: Option<&RawUsage>, total: Option<&RawUsage>) -> Strin
     fn usage_part(usage: Option<&RawUsage>) -> String {
         match usage {
             Some(usage) => format!(
-                "{},{},{},{},{}",
-                usage.input, usage.cached_input, usage.output, usage.reasoning, usage.total
+                "{},{},{},{},{},{}",
+                usage.input,
+                usage.cached_input,
+                usage.cache_write_input.unwrap_or(0),
+                usage.output,
+                usage.reasoning,
+                usage.total
             ),
             None => "-".to_string(),
         }
@@ -307,6 +340,7 @@ fn parse_raw_usage(value: &RawUsageWire) -> RawUsage {
             .cached_input_tokens
             .or(value.cache_read_input_tokens)
             .unwrap_or(0),
+        cache_write_input: value.cache_write_input_tokens,
         output: value.output_tokens.unwrap_or(0),
         reasoning: value.reasoning_output_tokens.unwrap_or(0),
         total: value.total_tokens.unwrap_or(0),
@@ -444,19 +478,27 @@ fn common_token_prefix(parent: &[String], child: &[String]) -> usize {
 }
 
 fn daily_rows_from_tokens<'a>(rows: impl Iterator<Item = &'a CodexTokenRow>) -> Vec<FileDailyRow> {
-    let mut daily: BTreeMap<(NaiveDate, String, String), UsageTotals> = BTreeMap::new();
+    let mut daily: BTreeMap<(NaiveDate, String, String, bool), UsageTotals> = BTreeMap::new();
     for row in rows {
-        let key = (row.date, row.project.clone(), row.model.clone());
+        let key = (
+            row.date,
+            row.project.clone(),
+            row.model.clone(),
+            row.long_context,
+        );
         daily.entry(key).or_default().add_assign(&row.usage);
     }
     daily
         .into_iter()
-        .map(|((date, project, model), usage)| FileDailyRow {
-            date,
-            project,
-            model,
-            usage,
-        })
+        .map(
+            |((date, project, model, long_context), usage)| FileDailyRow {
+                date,
+                project,
+                model,
+                usage,
+                long_context,
+            },
+        )
         .collect()
 }
 
@@ -495,6 +537,286 @@ mod tests {
             for prefix in ["", "openai/", "openrouter/openai/"] {
                 assert_eq!(normalize_codex_model(&format!(" {prefix}{model} ")), model);
             }
+        }
+    }
+
+    #[test]
+    fn prices_codex_long_context_request_before_daily_aggregation() {
+        let entry = parse_entry(&[
+            turn_context("gpt-6.1-sol"),
+            request_event(277_983, 264_320, 0, 1_704),
+        ]);
+        assert_report_cost(vec![entry], 0.133076);
+    }
+
+    #[test]
+    fn prices_codex_short_and_long_requests_separately() {
+        let entry = parse_entry(&[
+            turn_context("gpt-6.1-sol"),
+            request_event(272_000, 100_000, 0, 1_000),
+            request_event(272_001, 100_000, 0, 1_000),
+            request_event(140_000, 100_000, 0, 1_000),
+            request_event(140_000, 100_000, 0, 1_000),
+        ]);
+        assert_report_cost(vec![entry], 1.287004);
+    }
+
+    #[test]
+    fn does_not_treat_a_codex_daily_total_as_a_long_context_request() {
+        let entry = parse_entry(&[
+            turn_context("gpt-6.1-sol"),
+            request_event(140_000, 100_000, 0, 1_000),
+            request_event(140_000, 100_000, 0, 1_000),
+        ]);
+        assert_report_cost(vec![entry], 0.2);
+    }
+
+    #[test]
+    fn applies_codex_long_context_prices_only_to_supported_models() {
+        for (model, expected) in [("gpt-5.4", 1.0725), ("gpt-5.2", 0.3815)] {
+            let entry = parse_entry(&[
+                turn_context(model),
+                request_event(300_000, 100_000, 0, 1_000),
+            ]);
+            assert_report_cost(vec![entry], expected);
+        }
+    }
+
+    #[test]
+    fn displays_codex_cache_writes_without_changing_input_accounting() {
+        let entry = parse_entry(&[
+            turn_context("gpt-6.1-sol"),
+            request_event(300_000, 100_000, 100_000, 1_000),
+        ]);
+        let prices =
+            serde_json::from_str(include_str!("../pricing/official-pricing.json")).unwrap();
+        let report = crate::report::build_report(
+            vec![entry].into_iter(),
+            &prices,
+            crate::model::ReportGrouping::Daily,
+        );
+        let table = crate::table::render_daily_report(&report, "Codex");
+        assert!(table.contains("Cache Write"));
+        let cells: Vec<_> = table
+            .lines()
+            .find(|line| line.contains("gpt-6.1-sol"))
+            .unwrap()
+            .split(['│', '┆'])
+            .map(str::trim)
+            .filter(|cell| !cell.is_empty())
+            .collect();
+        assert_eq!(
+            &cells[2..8],
+            ["100,000", "1,000", "500", "100,000", "100,000", "301,000"]
+        );
+    }
+
+    #[test]
+    fn prices_codex_cache_writes_without_charging_them_as_ordinary_input() {
+        let entry = parse_entry(&[
+            turn_context("gpt-6.1-sol"),
+            request_event(10_000, 0, 10_000, 0),
+        ]);
+        assert_eq!(entry.daily_rows[0].usage.cache_write_5m, 10_000);
+        assert_report_cost(vec![entry], 0.025);
+    }
+
+    #[test]
+    fn prices_codex_long_context_cache_writes() {
+        let entry = parse_entry(&[
+            turn_context("gpt-6.1-sol"),
+            request_event(300_000, 100_000, 100_000, 1_000),
+        ]);
+        assert_report_cost(vec![entry], 0.935);
+    }
+
+    #[test]
+    fn deduplicates_codex_cache_write_snapshots() {
+        let mut first = request_event(10_000, 0, 10_000, 0);
+        first["payload"]["info"]["total_token_usage"] =
+            first["payload"]["info"]["last_token_usage"].clone();
+        let mut second = request_event(10_000, 0, 10_000, 0);
+        second["payload"]["info"]["total_token_usage"] = json!({
+            "input_tokens": 20_000,
+            "cached_input_tokens": 0,
+            "cache_write_input_tokens": 20_000,
+            "output_tokens": 0,
+            "total_tokens": 20_000
+        });
+        let entry = parse_entry(&[turn_context("gpt-6.1-sol"), first.clone(), first, second]);
+        assert_eq!(entry.daily_rows[0].usage.input, 20_000);
+        assert_eq!(entry.daily_rows[0].usage.cache_write_5m, 20_000);
+        assert_report_cost(vec![entry], 0.05);
+    }
+
+    #[test]
+    fn does_not_recount_snapshots_when_optional_write_counters_disappear() {
+        for omit_last_write in [false, true] {
+            let mut first = request_event(10_000, 0, 10_000, 100);
+            first["payload"]["info"]["total_token_usage"] =
+                first["payload"]["info"]["last_token_usage"].clone();
+            let mut duplicate = first.clone();
+            duplicate["payload"]["info"]["total_token_usage"]
+                .as_object_mut()
+                .unwrap()
+                .remove("cache_write_input_tokens");
+            if omit_last_write {
+                duplicate["payload"]["info"]["last_token_usage"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("cache_write_input_tokens");
+            }
+            let entry = parse_entry(&[turn_context("gpt-6.1-sol"), first, duplicate]);
+            assert_eq!(entry.daily_rows[0].usage.input, 10_000);
+            assert_eq!(entry.daily_rows[0].usage.output, 100);
+            assert_report_cost(vec![entry], 0.026);
+        }
+    }
+
+    #[test]
+    fn uses_last_write_count_when_cumulative_write_counters_have_gaps() {
+        let mut events = Vec::new();
+        for (input, written, total_input, total_written, total_output) in [
+            (10_000, Some(10_000), 10_000, Some(10_000), 100),
+            (5_000, None, 15_000, None, 200),
+            (5_000, Some(1_000), 20_000, Some(11_000), 300),
+        ] {
+            let mut event = request_event(input, 0, written.unwrap_or(0), 100);
+            if written.is_none() {
+                event["payload"]["info"]["last_token_usage"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("cache_write_input_tokens");
+            }
+            event["payload"]["info"]["total_token_usage"] = json!({
+                "input_tokens": total_input,
+                "cached_input_tokens": 0,
+                "cache_write_input_tokens": total_written,
+                "output_tokens": total_output,
+                "reasoning_output_tokens": total_output / 2,
+                "total_tokens": total_input + total_output
+            });
+            events.push(event);
+        }
+        events.insert(0, turn_context("gpt-6.1-sol"));
+        let entry = parse_entry(&events);
+        assert_eq!(entry.daily_rows[0].usage.input, 20_000);
+        assert_eq!(entry.daily_rows[0].usage.cache_write_5m, 11_000);
+        assert_report_cost(vec![entry], 0.0485);
+    }
+
+    #[test]
+    fn prices_codex_cumulative_deltas_when_last_usage_is_missing() {
+        let mut first = request_event(300_000, 100_000, 100_000, 1_000);
+        let mut second = request_event(310_000, 100_000, 110_000, 1_000);
+        for event in [&mut first, &mut second] {
+            let info = event["payload"]["info"].as_object_mut().unwrap();
+            let usage = info.remove("last_token_usage").unwrap();
+            info.insert("total_token_usage".to_string(), usage);
+        }
+        let entry = parse_entry(&[turn_context("gpt-6.1-sol"), first.clone(), first, second]);
+        assert_report_cost(vec![entry], 0.96);
+    }
+
+    #[test]
+    fn accepts_codex_cache_write_tokens_alias() {
+        let mut event = request_event(10_000, 0, 10_000, 0);
+        let usage = event["payload"]["info"]["last_token_usage"]
+            .as_object_mut()
+            .unwrap();
+        let written = usage.remove("cache_write_input_tokens").unwrap();
+        usage.insert("cache_write_tokens".to_string(), written);
+        assert_report_cost(
+            vec![parse_entry(&[turn_context("gpt-6.1-sol"), event])],
+            0.025,
+        );
+    }
+
+    #[test]
+    fn keeps_fork_events_with_distinct_cache_write_usage() {
+        let root = parse_entry(&[
+            session_meta_with_relation("2026-03-01T00:00:00Z", "root", "/repo", None, None),
+            turn_context("gpt-6.1-sol"),
+            request_event(10_000, 0, 0, 0),
+        ]);
+        let child = parse_entry(&[
+            session_meta_with_relation(
+                "2026-03-01T00:00:00Z",
+                "child",
+                "/repo",
+                Some("root"),
+                Some("root"),
+            ),
+            turn_context("gpt-6.1-sol"),
+            request_event(10_000, 0, 10_000, 0),
+        ]);
+        assert_report_cost(reconcile_forked_entries(vec![root, child]), 0.045);
+    }
+
+    #[test]
+    fn preserves_codex_pricing_tiers_through_cached_fork_reconciliation() {
+        let root_id = "pricing-root";
+        let long = request_event(300_000, 100_000, 100_000, 1_000);
+        let root = parse_entry(&[
+            session_meta_with_relation("2026-03-01T00:00:00Z", root_id, "/repo", None, None),
+            turn_context("gpt-6.1-sol"),
+            long.clone(),
+        ]);
+        let child = parse_entry(&[
+            session_meta_with_relation(
+                "2026-03-01T00:00:00Z",
+                "pricing-child",
+                "/repo",
+                Some(root_id),
+                Some(root_id),
+            ),
+            turn_context("gpt-6.1-sol"),
+            long,
+            request_event(10_000, 0, 10_000, 0),
+        ]);
+        let cached: Vec<FileCacheEntry> =
+            serde_json::from_str(&serde_json::to_string(&vec![root, child]).unwrap()).unwrap();
+        let reconciled = reconcile_forked_entries(cached);
+        assert_report_cost(reconciled.clone(), 0.96);
+        assert_report_cost(reconcile_forked_entries(reconciled), 0.96);
+    }
+
+    fn request_event(input: u64, cached: u64, written: u64, output: u64) -> Value {
+        json!({
+            "timestamp": "2026-03-01T00:00:01Z",
+            "type": "event_msg",
+            "payload": {
+                "type": "token_count",
+                "info": {
+                    "last_token_usage": {
+                        "input_tokens": input,
+                        "cached_input_tokens": cached,
+                        "cache_write_input_tokens": written,
+                        "output_tokens": output,
+                        "reasoning_output_tokens": output / 2,
+                        "total_tokens": input + output
+                    }
+                }
+            }
+        })
+    }
+
+    fn assert_report_cost(entries: Vec<FileCacheEntry>, expected: f64) {
+        let prices =
+            serde_json::from_str(include_str!("../pricing/official-pricing.json")).unwrap();
+        for grouping in [
+            crate::model::ReportGrouping::Daily,
+            crate::model::ReportGrouping::Project,
+            crate::model::ReportGrouping::DailyProject,
+            crate::model::ReportGrouping::ProjectDaily,
+        ] {
+            let report =
+                crate::report::build_report(entries.clone().into_iter(), &prices, grouping);
+            let actual = report.totals.cost_usd.unwrap();
+            assert!(
+                (actual - expected).abs() < 1e-10,
+                "{grouping:?}: {actual} != {expected}"
+            );
         }
     }
 

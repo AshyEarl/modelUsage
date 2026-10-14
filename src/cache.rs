@@ -14,7 +14,7 @@ const PRICING_FILE_NAME: &str = "pricing.json";
 const UPDATE_FILE_NAME: &str = "update.json";
 const COPILOT_OTEL_FILE_NAME: &str = "copilot-otel.json";
 const CLAUDE_PARSER_VERSION: u32 = 5;
-const CODEX_PARSER_VERSION: u32 = 3;
+const CODEX_PARSER_VERSION: u32 = 4;
 const COPILOT_PARSER_VERSION: u32 = 5;
 const OPENCODE_PARSER_VERSION: u32 = 1;
 
@@ -353,22 +353,24 @@ mod tests {
         let path = temp_file_path("parser-version-change");
         fs::write(&path, "data").unwrap();
         let metadata = fs::metadata(&path).unwrap();
-        let entry = crate::model::FileCacheEntry {
-            source: SourceKind::Claude,
-            parser_version: parser_version(SourceKind::Claude).saturating_sub(1),
-            path: path.clone(),
-            size: metadata.len(),
-            mtime_ms: super::file_mtime_ms(&metadata).unwrap(),
-            daily_rows: vec![],
-            claude_message_rows: vec![],
-            codex_details: None,
-            copilot_details: None,
-        };
+        for source in [SourceKind::Claude, SourceKind::Codex] {
+            let entry = crate::model::FileCacheEntry {
+                source,
+                parser_version: parser_version(source).saturating_sub(1),
+                path: path.clone(),
+                size: metadata.len(),
+                mtime_ms: super::file_mtime_ms(&metadata).unwrap(),
+                daily_rows: vec![],
+                claude_message_rows: vec![],
+                codex_details: None,
+                copilot_details: None,
+            };
 
-        assert_eq!(
-            file_change_reason(SourceKind::Claude, Some(&entry), &metadata),
-            Some(FileChangeReason::ParserVersionChanged)
-        );
+            assert_eq!(
+                file_change_reason(source, Some(&entry), &metadata),
+                Some(FileChangeReason::ParserVersionChanged)
+            );
+        }
         let _ = fs::remove_file(path);
     }
 

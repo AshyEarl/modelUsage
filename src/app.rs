@@ -652,6 +652,7 @@ fn dedup_claude_entries_by_session_message(
     let daily_rows: Vec<FileDailyRow> = daily
         .into_iter()
         .map(|((date, project, model), usage)| FileDailyRow {
+            long_context: false,
             date,
             project,
             model,
@@ -1123,6 +1124,7 @@ mod tests {
     fn falls_back_when_claude_message_rows_are_missing() {
         let tz = AggregationTz::parse(Some("UTC")).unwrap();
         let daily_row = FileDailyRow {
+            long_context: false,
             date: chrono::NaiveDate::from_ymd_opt(2026, 3, 1).unwrap(),
             project: "/repo/demo".to_string(),
             model: "sonnet-4-6".to_string(),
@@ -1153,6 +1155,7 @@ mod tests {
     fn keeps_codex_entries_unchanged() {
         let tz = AggregationTz::parse(Some("UTC")).unwrap();
         let codex_row = FileDailyRow {
+            long_context: false,
             date: chrono::NaiveDate::from_ymd_opt(2026, 3, 1).unwrap(),
             project: "/repo/codex".to_string(),
             model: "gpt-5".to_string(),

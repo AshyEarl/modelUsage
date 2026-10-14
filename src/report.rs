@@ -20,9 +20,11 @@ pub fn build_report(
     grouping: ReportGrouping,
 ) -> DailyReport {
     let mut rows_by_key: BTreeMap<GroupKey, DailyRow> = BTreeMap::new();
+    let mut codex_only = true;
 
     for entry in entries {
         for row in entry.daily_rows {
+            codex_only &= entry.source == crate::model::SourceKind::Codex;
             let key = match grouping {
                 ReportGrouping::Daily => GroupKey::Daily(row.date),
                 ReportGrouping::Project => GroupKey::Project(row.project.clone()),
@@ -52,7 +54,13 @@ pub fn build_report(
             });
             day.models.insert(row.model.clone());
             day.usage.add_assign(&row.usage);
-            match compute_cost(entry.source, &row.model, &row.usage, prices) {
+            match compute_cost(
+                entry.source,
+                &row.model,
+                &row.usage,
+                prices,
+                row.long_context,
+            ) {
                 Some(cost) => {
                     let current = day.cost_usd.get_or_insert(0.0);
                     *current += cost;
@@ -131,6 +139,7 @@ pub fn build_report(
 
     DailyReport {
         grouping,
+        codex_only: codex_only && !rows.is_empty(),
         rows,
         totals: ReportTotals {
             usage: total_usage,
@@ -268,6 +277,7 @@ mod tests {
                 size: 1,
                 mtime_ms: 1,
                 daily_rows: vec![FileDailyRow {
+                    long_context: false,
                     date: chrono::NaiveDate::from_ymd_opt(2026, 3, 1).unwrap(),
                     project: "/repo/a".to_string(),
                     model: "sonnet-4-6".to_string(),
@@ -287,6 +297,7 @@ mod tests {
                 size: 1,
                 mtime_ms: 1,
                 daily_rows: vec![FileDailyRow {
+                    long_context: false,
                     date: chrono::NaiveDate::from_ymd_opt(2026, 3, 1).unwrap(),
                     project: "/repo/b".to_string(),
                     model: "sonnet-4-6".to_string(),
@@ -312,6 +323,7 @@ mod tests {
                 mtime_ms: 1,
                 daily_rows: vec![
                     FileDailyRow {
+                        long_context: false,
                         date: chrono::NaiveDate::from_ymd_opt(2026, 3, 2).unwrap(),
                         project: "/repo/b".to_string(),
                         model: "sonnet-4-6".to_string(),
@@ -321,6 +333,7 @@ mod tests {
                         },
                     },
                     FileDailyRow {
+                        long_context: false,
                         date: chrono::NaiveDate::from_ymd_opt(2026, 3, 1).unwrap(),
                         project: "/repo/b".to_string(),
                         model: "sonnet-4-6".to_string(),
@@ -341,6 +354,7 @@ mod tests {
                 size: 1,
                 mtime_ms: 1,
                 daily_rows: vec![FileDailyRow {
+                    long_context: false,
                     date: chrono::NaiveDate::from_ymd_opt(2026, 3, 1).unwrap(),
                     project: "/repo/a".to_string(),
                     model: "sonnet-4-6".to_string(),
@@ -374,6 +388,7 @@ mod tests {
                 cache_write_5m_cost_per_mtoken: None,
                 cache_write_1h_cost_per_mtoken: None,
                 cache_read_cost_per_mtoken: None,
+                long_context: None,
             },
         );
         PricingCache {

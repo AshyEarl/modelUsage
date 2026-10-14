@@ -140,6 +140,7 @@ pub fn parse_file_detailed(
     let daily_rows = daily
         .into_iter()
         .map(|((date, project, model), usage)| FileDailyRow {
+            long_context: false,
             date,
             project,
             model,

@@ -67,9 +67,11 @@ As of **2026-10-12**, 45 missing OpenAI text/code model IDs were added, includin
 
 These are USD per million tokens at Standard short-context rates. GPT-5.6 Sol's current promotional pricing is published as available at least through November 21, 2026. The local price table applies the currently verified rates to historical usage as well; it does not select prices by usage date.
 
-OpenAI publishes a single cache-write rate for these models, without Claude's 5-minute/1-hour distinction. It is stored in `cache_write_5m_cost_per_mtoken`; `cache_write_1h_cost_per_mtoken` stays `null`, and the existing calculation falls back to the published rate for either write bucket. Codex logs currently supply cached input rather than separate cache writes, so Codex cost continues to use input, output, and cache-read rates only.
+OpenAI publishes a single cache-write rate for these models, without Claude's 5-minute/1-hour distinction. It is stored in `cache_write_5m_cost_per_mtoken`; `cache_write_1h_cost_per_mtoken` stays `null`, and the calculation falls back to the published rate for either write bucket. Codex's `cache_write_input_tokens` (also accepted as `cache_write_tokens`) is stored in the 5-minute bucket. Both cache reads and cache writes are subsets of Codex input: ordinary input is `input - cache_read - cache_write`, and each bucket is charged at its own rate. When cumulative write counters are missing or reset, new requests use their last-request write counter if available; repeated snapshots remain deduplicated. If neither counter is available, writes remain zero and cannot be reconstructed from input alone. Reasoning is already included in output and is not charged again. See the [official prompt-caching accounting](https://developers.openai.com/api/docs/guides/prompt-caching).
 
-Long-context uplifts, Batch/Flex/Fast/Ultrafast tiers, regional premiums, and tool-call fees are not modeled. Search models cover token costs only. Audio, image generation, and per-minute models are excluded because the current usage totals cannot distinguish their billing units.
+As of **2026-10-13**, the [official Standard pricing table](https://developers.openai.com/api/docs/pricing) was checked for long-context rates. The local `long_context` configuration stores input/cache ×2 and output ×1.5 for GPT-5.4/Pro, GPT-5.5/Pro, GPT-5.6/Sol/Terra/Luna, GPT-6 Astra/Sol/Luna, and GPT-6.1 Sol. Only models with this configuration receive an uplift. Codex classifies each request using `last_token_usage.input_tokens > 272000` (including cached input), falling back to the cumulative-counter delta when the last-request usage is unavailable. Short and long requests remain separate through daily aggregation and fork reconciliation, so a day's input total never triggers an uplift. A cumulative-only snapshot covering multiple requests cannot reconstruct their individual context lengths. Parser version 4 automatically invalidates older Codex file caches; the pricing timestamp also advances so the new configuration replaces the previous bundled-price cache.
+
+Other sources still use short-context rates. Batch/Flex/Fast/Ultrafast tiers, regional premiums, and tool-call fees are not modeled. Search models cover token costs only. Audio, image generation, and per-minute models are excluded because the current usage totals cannot distinguish their billing units.
 
 Additional official model pages used for chat and legacy prices:
 
@@ -224,6 +226,8 @@ Structure:
 ```
 
 All `*_cost_per_mtoken` fields are expressed in USD per million tokens.
+
+For verified OpenAI models with a long-context tier, add `"long_context": { "input_multiplier": 2.0, "output_multiplier": 1.5 }` beside the token prices. Input multipliers apply to ordinary input, cache reads, and cache writes. Omit this field for models without an officially published uplift. The currently supported threshold is strictly more than 272,000 input tokens per request.
 
 ## Update workflow
 

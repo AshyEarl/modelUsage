@@ -102,7 +102,8 @@ Timezone accepts:
 - Copilot CLI settled usage is read from `~/.copilot/session-state/*/events.jsonl` (requires Copilot CLI v0.0.422+).
 - Copilot cache write and in-progress session usage can be cross-filled from OTel JSONL. By default `modelUsage` checks `COPILOT_OTEL_FILE_EXPORTER_PATH`, then falls back to `~/.copilot/otel.jsonl`.
 - OpenCode usage is read from its session database at `~/.local/share/opencode/opencode.db` (via `opencode db path`); the db is opened read-only so a running OpenCode is never blocked. Cost is computed locally from `pricing/official-pricing.json`, so plan-profile models without a token price (e.g. `glm-5.2`) show `N/A`.
-- GPT text/code pricing covers GPT-6 Sol, GPT-6.1 Sol, GPT-6 Luna, GPT-5 variants, and GPT-4.x/legacy models listed in [PRICING.md](PRICING.md). Model versions remain distinct. Costs use the current bundled Standard short-context token rates; service-tier, long-context, and tool-call surcharges are not included, and unverified model prices remain `N/A`.
+- GPT text/code pricing covers GPT-6 Sol, GPT-6.1 Sol, GPT-6 Luna, GPT-5 variants, and GPT-4.x/legacy models listed in [PRICING.md](PRICING.md). Model versions remain distinct. Codex costs use the current bundled Standard rates, including published long-context multipliers for requests with more than 272,000 input tokens. Other sources still use short-context rates. Service-tier, regional, and tool-call surcharges are not included, and unverified model prices remain `N/A`.
+- Codex cache writes are included when the log supplies `cache_write_input_tokens` (or `cache_write_tokens`). In Codex-only tables, `Input` excludes cache reads and writes; `Cache Write` appears when nonzero, and `Total Tokens` counts each token once. JSON `usage.input` retains the raw input count including cache reads and writes. `Reasoning` is already included in `Output` and is not billed again. Older Codex statistics caches are rebuilt automatically after this accounting update.
 - Claude compact calls are included. When a `compact_boundary` lacks exact API usage, `modelUsage` estimates it from `preTokens` / `postTokens`, the nearby model, and the recorded 5-minute or 1-hour cache lifetime, then emits a warning.
 - Claude advisor tool calls are included. Their tokens are not part of the message's top-level `usage`; each `advisor_message` entry in `usage.iterations` is counted as its own row under the advisor's model (which can differ from the main model). Advisor calls interrupted before completion leave no usage in the log and cannot be counted.
 
@@ -139,6 +140,6 @@ COPILOT_OTEL_FILE_EXPORTER_PATH=$HOME/.copilot/otel.jsonl copilot
 
 ## Versioning
 
-- Current version: `0.1.36`
+- Current version: `0.1.37`
 - Source of truth: `Cargo.toml`
 - Tag format: `vX.Y.Z`

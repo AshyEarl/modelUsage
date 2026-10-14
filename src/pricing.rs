@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use std::collections::BTreeSet;
 
 const OFFICIAL_PRICING_JSON: &str = include_str!("../pricing/official-pricing.json");
+pub const OPENAI_LONG_CONTEXT_THRESHOLD: u64 = 272_000;
 
 pub fn load_prices() -> Result<PricingCache> {
     // Pricing now comes from the project-maintained official price list instead of LiteLLM.
@@ -36,48 +37,58 @@ pub fn compute_cost(
     model: &str,
     usage: &UsageTotals,
     prices: &PricingCache,
+    long_context: bool,
 ) -> Option<f64> {
     let price = prices.models.get(model)?;
-    if source == SourceKind::Codex {
-        // Cached input for Codex must use the cheaper cache-read price instead of the regular input price.
-        // Codex 的 cached input 要按更低的 cache read 单价计费，不能和普通 input 混算。
+    let (input, cache_read, cache_write_5m, cache_write_1h) = if source == SourceKind::Codex {
+        // Codex input includes both cache reads and writes; charge each subset exactly once.
+        // Codex 的 input 包含缓存读取和写入；各个子集只按对应价格计费一次。
         let cached = usage.cache_read.min(usage.input);
-        let non_cached = usage.input.saturating_sub(cached);
-        return Some(
-            mtok(non_cached, price.input_cost_per_mtoken)
-                + mtok(
-                    cached,
-                    price
-                        .cache_read_cost_per_mtoken
-                        .unwrap_or(price.input_cost_per_mtoken),
-                )
-                + mtok(usage.output, price.output_cost_per_mtoken),
-        );
-    }
+        let remaining = usage.input - cached;
+        let written_5m = usage.cache_write_5m.min(remaining);
+        let written_1h = usage.cache_write_1h.min(remaining - written_5m);
+        (
+            remaining - written_5m - written_1h,
+            cached,
+            written_5m,
+            written_1h,
+        )
+    } else {
+        (
+            usage.input,
+            usage.cache_read,
+            usage.cache_write_5m,
+            usage.cache_write_1h,
+        )
+    };
+    let context_price = price.long_context.as_ref().filter(|_| long_context);
+    let input_multiplier = context_price.map_or(1.0, |tier| tier.input_multiplier);
+    let output_multiplier = context_price.map_or(1.0, |tier| tier.output_multiplier);
 
     Some(
-        mtok(usage.input, price.input_cost_per_mtoken)
-            + mtok(usage.output, price.output_cost_per_mtoken)
+        (mtok(input, price.input_cost_per_mtoken)
             + mtok(
-                usage.cache_write_5m,
+                cache_write_5m,
                 price
                     .cache_write_5m_cost_per_mtoken
                     .or(price.cache_write_1h_cost_per_mtoken)
                     .unwrap_or(price.input_cost_per_mtoken),
             )
             + mtok(
-                usage.cache_write_1h,
+                cache_write_1h,
                 price
                     .cache_write_1h_cost_per_mtoken
                     .or(price.cache_write_5m_cost_per_mtoken)
                     .unwrap_or(price.input_cost_per_mtoken),
             )
             + mtok(
-                usage.cache_read,
+                cache_read,
                 price
                     .cache_read_cost_per_mtoken
                     .unwrap_or(price.input_cost_per_mtoken),
-            ),
+            ))
+            * input_multiplier
+            + mtok(usage.output, price.output_cost_per_mtoken) * output_multiplier,
     )
 }
 
@@ -113,7 +124,7 @@ mod tests {
             cache_read: 5_420_416,
             total: 6_359_158,
         };
-        let cost = compute_cost(SourceKind::Codex, "gpt-5-codex", &usage, &prices).unwrap();
+        let cost = compute_cost(SourceKind::Codex, "gpt-5-codex", &usage, &prices, false).unwrap();
         assert!((cost - 2.776117).abs() < 0.000001);
     }
 
@@ -129,7 +140,7 @@ mod tests {
             cache_read: 1_456_128,
             total: 1_940_131,
         };
-        let cost = compute_cost(SourceKind::Codex, "gpt-5.4", &usage, &prices).unwrap();
+        let cost = compute_cost(SourceKind::Codex, "gpt-5.4", &usage, &prices, false).unwrap();
         assert!((cost - 1.8845895).abs() < 0.000001);
     }
 
@@ -260,7 +271,7 @@ mod tests {
         ] {
             let normalized = normalize_codex_model(&format!("openrouter/openai/{model}"));
             assert_eq!(normalized, model);
-            let cost = compute_cost(SourceKind::Codex, &normalized, &usage, &prices)
+            let cost = compute_cost(SourceKind::Codex, &normalized, &usage, &prices, false)
                 .unwrap_or_else(|| panic!("missing price: {model}"));
             assert!((cost - expected).abs() < 0.000001, "{model}: {cost}");
         }
@@ -283,7 +294,7 @@ mod tests {
             SourceKind::Copilot,
             SourceKind::Opencode,
         ] {
-            let cost = compute_cost(source, "gpt-6.1-sol", &usage, &prices).unwrap();
+            let cost = compute_cost(source, "gpt-6.1-sol", &usage, &prices, false).unwrap();
             assert!((cost - 17.1).abs() < 0.000001, "{source:?}: {cost}");
         }
     }
@@ -308,6 +319,7 @@ mod tests {
                 "gpt-99-unverified",
                 &UsageTotals::default(),
                 &prices,
+                false,
             ),
             None
         );

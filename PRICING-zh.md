@@ -67,9 +67,11 @@
 
 以上为 Standard 短上下文档位的每百万 token 美元价格。官方公布 GPT-5.6 Sol 当前促销价至少持续到 2026 年 11 月 21 日。本地价格表也会将当前核实的价格用于历史用量，不会按用量日期选择历史价格。
 
-OpenAI 对这些模型只公布统一的缓存写入价，没有 Claude 的 5 分钟／1 小时区分。这里将其存入 `cache_write_5m_cost_per_mtoken`，`cache_write_1h_cost_per_mtoken` 保持 `null`，现有计算逻辑会为任一写入桶回退到该官方价格。Codex 日志目前提供缓存输入而非单独的缓存写入，所以 Codex 成本仍只使用输入、输出和缓存读取价格。
+OpenAI 对这些模型只公布统一的缓存写入价，没有 Claude 的 5 分钟／1 小时区分。这里将其存入 `cache_write_5m_cost_per_mtoken`，`cache_write_1h_cost_per_mtoken` 保持 `null`，计算逻辑会为任一写入桶回退到该官方价格。Codex 的 `cache_write_input_tokens`（也接受 `cache_write_tokens`）归入 5 分钟写入桶。缓存读取和写入都是 Codex 输入的子集：普通输入为 `input - cache_read - cache_write`，各桶分别按对应单价计费。累计写入计数缺失或重置时，新请求会在可用时采用单次写入计数；重复快照仍会去重。如果两种写入计数都不可用，则写入仍为零，无法仅凭 input 重建。Reasoning 已包含在 output 中，不会重复计费。参见[官方缓存计费规则](https://developers.openai.com/api/docs/guides/prompt-caching)。
 
-当前未建模长上下文加价、Batch/Flex/Fast/Ultrafast 档位、区域溢价及工具调用费。搜索模型仅计算 token 成本。音频、图像生成及按分钟计费模型不在本次范围，因为现有用量字段无法区分其计费单位。
+截至 **2026-10-13**，已核对[官方 Standard 价格表](https://developers.openai.com/api/docs/pricing)中的长上下文价格。本地 `long_context` 配置为 GPT-5.4/Pro、GPT-5.5/Pro、GPT-5.6/Sol/Terra/Luna、GPT-6 Astra/Sol/Luna 和 GPT-6.1 Sol 记录输入／缓存 ×2、输出 ×1.5 的倍率。只有带此配置的模型才会加价。Codex 按每次请求的 `last_token_usage.input_tokens > 272000`（包含缓存输入）判断；缺失单次 usage 时回退到累计计数差分。短、长请求在日报汇总和 fork 去重中保持分开，因此不会把一天的累计输入误当成单次长上下文。若只有覆盖多个请求的累计快照，则无法重建每次请求的上下文长度。解析器版本 4 会自动使旧 Codex 文件缓存失效；同时推进价格时间戳，使新配置替换之前内置价格的缓存。
+
+其他来源仍按短上下文价格估算。当前未建模 Batch/Flex/Fast/Ultrafast 档位、区域溢价及工具调用费。搜索模型仅计算 token 成本。音频、图像生成及按分钟计费模型不在本次范围，因为现有用量字段无法区分其计费单位。
 
 Chat 与历史型号价格另核对了以下官方模型页：
 
@@ -224,6 +226,8 @@ MiniMax 和 GLM 官方价格以人民币发布。这里按 **2026-06-09 00:02:31
 ```
 
 所有 `*_cost_per_mtoken` 字段的单位都是“每百万 token 的美元价格”。
+
+对已核实官方长上下文档位的 OpenAI 模型，在 token 价格旁添加 `"long_context": { "input_multiplier": 2.0, "output_multiplier": 1.5 }`。输入倍率同时适用于普通输入、缓存读取和缓存写入。没有官方加价规则的模型应省略该字段。当前支持的阈值为单次输入严格大于 272,000 token。
 
 ## 更新流程
 

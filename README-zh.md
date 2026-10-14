@@ -102,7 +102,8 @@ modelUsage --update        # 下载并替换当前二进制
 - Copilot CLI 的已落盘统计来自 `~/.copilot/session-state/*/events.jsonl`（需要 Copilot CLI v0.0.422+）。
 - Copilot 的 `cache write` 和运行中会话用量可通过 OTel JSONL 交叉补齐。`modelUsage` 默认先读 `COPILOT_OTEL_FILE_EXPORTER_PATH`，未设置时再尝试 `~/.copilot/otel.jsonl`。
 - OpenCode 的用量来自其会话数据库 `~/.local/share/opencode/opencode.db`（即 `opencode db path`）；以只读方式打开，不会阻塞正在运行的 OpenCode。成本由本地 `pricing/official-pricing.json` 计算，因此没有 token 单价的套餐 profile 模型（如 `glm-5.2`）会显示 `N/A`。
-- GPT 文本／代码价格已覆盖 GPT-6 Sol、GPT-6.1 Sol、GPT-6 Luna、GPT-5 变体，以及 [PRICING-zh.md](PRICING-zh.md) 中列出的 GPT-4.x／历史型号，各模型版本保持独立。成本按当前内置的 Standard 短上下文 token 单价估算，未包含服务档位、长上下文与工具调用加价；未经核实的模型价格仍显示 `N/A`。
+- GPT 文本／代码价格已覆盖 GPT-6 Sol、GPT-6.1 Sol、GPT-6 Luna、GPT-5 变体，以及 [PRICING-zh.md](PRICING-zh.md) 中列出的 GPT-4.x／历史型号，各模型版本保持独立。Codex 成本按当前内置 Standard 价格计算；单次输入超过 272,000 token 时，对官方公布了长上下文价格的模型应用相应倍率。其他来源仍按短上下文单价估算。服务档位、区域溢价及工具调用费尚未包含；未经核实的模型价格仍显示 `N/A`。
+- Codex 日志提供 `cache_write_input_tokens`（或 `cache_write_tokens`）时，会纳入缓存写入统计和计费。Codex-only 表格的 `Input` 排除缓存读取和写入；`Cache Write` 非零时展示，`Total Tokens` 中每个 token 只计一次。JSON 的 `usage.input` 保留包含缓存读取和写入的原始输入总数。`Reasoning` 已包含在 `Output` 中，不会再次计费。本次计费更新后，旧 Codex 统计缓存会自动重建。
 - Claude 的 compact 调用会纳入统计。如果 `compact_boundary` 没有精确 API usage，`modelUsage` 会根据 `preTokens` / `postTokens`、邻近消息的模型以及日志里的 5 分钟或 1 小时缓存有效期进行估算，并输出 warning。
 - Claude 的 advisor 工具调用会纳入统计。它的 token 不包含在消息顶层 `usage` 里；`usage.iterations` 中每个 `advisor_message` 会按 advisor 自己的模型（可能与主模型不同）单独计为一行。未完成就被中断的 advisor 调用不会在日志里留下 usage，因此无法统计。
 
@@ -139,6 +140,6 @@ COPILOT_OTEL_FILE_EXPORTER_PATH=$HOME/.copilot/otel.jsonl copilot
 
 ## 版本说明
 
-- 当前版本：`0.1.36`
+- 当前版本：`0.1.37`
 - 版本号来源：`Cargo.toml`
 - Tag 格式：`vX.Y.Z`

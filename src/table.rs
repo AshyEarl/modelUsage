@@ -5,8 +5,8 @@ pub fn render_daily_report(report: &DailyReport, report_label: &str) -> String {
     // Claude logs do not expose a stable reasoning field, so hide the column when the whole report is zero.
     // Claude 本地日志没有稳定的 reasoning 字段，整份报表都为 0 时就不展示这一列。
     let show_reasoning = report.totals.usage.reasoning > 0;
-    let codex_like = is_codex_like_report(report);
-    let show_cache_write = !codex_like;
+    let codex_like = report.codex_only;
+    let show_cache_write = !codex_like || report.totals.usage.cache_write() > 0;
     let mut table = Table::new();
     table.load_preset(UTF8_FULL);
     table.set_content_arrangement(ContentArrangement::Dynamic);
@@ -283,19 +283,12 @@ fn suppress_first_column_segment(line: &str) -> String {
     chars.into_iter().collect()
 }
 
-fn is_codex_like_report(report: &DailyReport) -> bool {
-    !report.rows.is_empty()
-        && report.totals.usage.cache_write() == 0
-        && report
-            .rows
-            .iter()
-            .flat_map(|row| row.models.iter())
-            .all(|model| model.starts_with("gpt-"))
-}
-
 fn display_input_tokens(usage: &crate::model::UsageTotals, codex_like: bool) -> u64 {
     if codex_like {
-        usage.input.saturating_sub(usage.cache_read)
+        usage
+            .input
+            .saturating_sub(usage.cache_read)
+            .saturating_sub(usage.cache_write())
     } else {
         usage.input
     }
@@ -303,7 +296,10 @@ fn display_input_tokens(usage: &crate::model::UsageTotals, codex_like: bool) -> 
 
 fn display_total_tokens(usage: &crate::model::UsageTotals, codex_like: bool) -> u64 {
     if codex_like {
-        display_input_tokens(usage, codex_like) + usage.output + usage.cache_read
+        display_input_tokens(usage, codex_like)
+            + usage.output
+            + usage.cache_read
+            + usage.cache_write()
     } else {
         usage.total
     }
