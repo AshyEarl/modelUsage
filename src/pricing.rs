@@ -394,6 +394,20 @@ mod tests {
     }
 
     #[test]
+    fn has_fable_5_2_official_prices() {
+        let prices = load_bundled_prices().unwrap();
+        let price = prices
+            .models
+            .get("fable-5-2")
+            .unwrap_or_else(|| panic!("missing model: fable-5-2"));
+        assert_eq!(price.input_cost_per_mtoken, 8.0);
+        assert_eq!(price.output_cost_per_mtoken, 40.0);
+        assert_eq!(price.cache_write_5m_cost_per_mtoken, Some(10.0));
+        assert_eq!(price.cache_write_1h_cost_per_mtoken, Some(16.0));
+        assert_eq!(price.cache_read_cost_per_mtoken, Some(0.2));
+    }
+
+    #[test]
     fn has_fable_5_1_official_prices() {
         let prices = load_bundled_prices().unwrap();
         let price = prices
@@ -435,6 +449,7 @@ mod tests {
             ("opus-4-8", 10.0),
             ("opus-5", 10.0),
             ("opus-5-5", 8.0),
+            ("fable-5-2", 16.0),
             ("fable-5-1", 20.0),
         ] {
             let price = prices
