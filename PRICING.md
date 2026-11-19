@@ -55,8 +55,12 @@ Notes:
 
 As of **2026-10-12**, 45 missing OpenAI text/code model IDs were added, including GPT-6 Sol, GPT-6.1 Sol, GPT-6 Luna, GPT-5 mini/nano/pro and chat variants, GPT-4.x, and officially listed legacy snapshots. Existing GPT-5.6 rates were refreshed, and published OpenAI cache-write rates were filled in.
 
+As of **2026-11-19**, `gpt-6.2-sol` and `gpt-6.2-astra` were added from the official pricing page: $2/$10/$0.10/$2.50 and $8/$40/$0.40/$10 per MTok respectively. Their official long-context rates follow the same input/cache ×2, output ×1.5 pattern as the GPT-6/6.1 family. `gpt-6.2-astra-law` (same rates as `gpt-6.2-astra`, trusted-access legal configuration) is not listed separately.
+
 | Model | Input | Output | Cache read | Cache write |
 | --- | ---: | ---: | ---: | ---: |
+| `gpt-6.2-astra` | $8 | $40 | $0.40 | $10 |
+| `gpt-6.2-sol` | $2 | $10 | $0.10 | $2.50 |
 | `gpt-6-astra` | $10 | $50 | $1 | $12.50 |
 | `gpt-6-sol` | $2 | $10 | $0.20 | $2.50 |
 | `gpt-6.1-sol` | $2 | $10 | $0.10 | $2.50 |
@@ -65,11 +69,11 @@ As of **2026-10-12**, 45 missing OpenAI text/code model IDs were added, includin
 | `gpt-5.6-terra` | $2 | $12 | $0.20 | $2.50 |
 | `gpt-5.6-luna` | $0.20 | $1.20 | $0.02 | $0.25 |
 
-These are USD per million tokens at Standard short-context rates. GPT-5.6 Sol's current promotional pricing is published as available at least through November 21, 2026. The local price table applies the currently verified rates to historical usage as well; it does not select prices by usage date.
+These are USD per million tokens at Standard short-context rates. GPT-5.6 Sol's current promotional pricing is published as available through November 30, 2026. The local price table applies the currently verified rates to historical usage as well; it does not select prices by usage date.
 
-OpenAI publishes a single cache-write rate for these models, without Claude's 5-minute/1-hour distinction. It is stored in `cache_write_5m_cost_per_mtoken`; `cache_write_1h_cost_per_mtoken` stays `null`, and the calculation falls back to the published rate for either write bucket. Codex's `cache_write_input_tokens` (also accepted as `cache_write_tokens`) is stored in the 5-minute bucket. Both cache reads and cache writes are subsets of Codex input: ordinary input is `input - cache_read - cache_write`, and each bucket is charged at its own rate. When cumulative write counters are missing or reset, new requests use their last-request write counter if available; repeated snapshots remain deduplicated. If neither counter is available, writes remain zero and cannot be reconstructed from input alone. Reasoning is already included in output and is not charged again. See the [official prompt-caching accounting](https://developers.openai.com/api/docs/guides/prompt-caching).
+OpenAI's pricing page now labels cache writes by duration (30m and 12h) without Claude's 5-minute/1-hour distinction; Codex logs do not distinguish write durations. The published 30m write rate is stored in `cache_write_5m_cost_per_mtoken`; `cache_write_1h_cost_per_mtoken` stays `null`, and the calculation falls back to the published rate for either write bucket. Codex's `cache_write_input_tokens` (also accepted as `cache_write_tokens`) is stored in the 5-minute bucket. Both cache reads and cache writes are subsets of Codex input: ordinary input is `input - cache_read - cache_write`, and each bucket is charged at its own rate. When cumulative write counters are missing or reset, new requests use their last-request write counter if available; repeated snapshots remain deduplicated. If neither counter is available, writes remain zero and cannot be reconstructed from input alone. Reasoning is already included in output and is not charged again. See the [official prompt-caching accounting](https://developers.openai.com/api/docs/guides/prompt-caching).
 
-As of **2026-10-13**, the [official Standard pricing table](https://developers.openai.com/api/docs/pricing) was checked for long-context rates. The local `long_context` configuration stores input/cache ×2 and output ×1.5 for GPT-5.4/Pro, GPT-5.5/Pro, GPT-5.6/Sol/Terra/Luna, GPT-6 Astra/Sol/Luna, and GPT-6.1 Sol. Only models with this configuration receive an uplift. Codex classifies each request using `last_token_usage.input_tokens > 272000` (including cached input), falling back to the cumulative-counter delta when the last-request usage is unavailable. Short and long requests remain separate through daily aggregation and fork reconciliation, so a day's input total never triggers an uplift. A cumulative-only snapshot covering multiple requests cannot reconstruct their individual context lengths. Parser version 4 automatically invalidates older Codex file caches; the pricing timestamp also advances so the new configuration replaces the previous bundled-price cache.
+As of **2026-10-13**, the [official Standard pricing table](https://developers.openai.com/api/docs/pricing) was checked for long-context rates. The local `long_context` configuration stores input/cache ×2 and output ×1.5 for GPT-5.4/Pro, GPT-5.5/Pro, GPT-5.6/Sol/Terra/Luna, GPT-6 Astra/Sol/Luna, GPT-6.1 Sol, and (as of 2026-11-19) GPT-6.2 Astra/Sol. Only models with this configuration receive an uplift. Codex classifies each request using `last_token_usage.input_tokens > 272000` (including cached input), falling back to the cumulative-counter delta when the last-request usage is unavailable. Short and long requests remain separate through daily aggregation and fork reconciliation, so a day's input total never triggers an uplift. A cumulative-only snapshot covering multiple requests cannot reconstruct their individual context lengths. Parser version 4 automatically invalidates older Codex file caches; the pricing timestamp also advances so the new configuration replaces the previous bundled-price cache.
 
 Other sources still use short-context rates. Batch/Flex/Fast/Ultrafast tiers, regional premiums, and tool-call fees are not modeled. Search models cover token costs only. Audio, image generation, and per-minute models are excluded because the current usage totals cannot distinguish their billing units.
 
@@ -196,6 +200,8 @@ Deprecated IDs remain priced for historical usage, including `codex-mini-latest`
 - `gpt-6-luna`
 - `gpt-6-sol`
 - `gpt-6.1-sol`
+- `gpt-6.2-astra`
+- `gpt-6.2-sol`
 - `gpt-rosalind-discovery`
 - `gpt-rosalind-research`
 

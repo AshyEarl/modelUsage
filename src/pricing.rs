@@ -225,6 +225,33 @@ mod tests {
     }
 
     #[test]
+    fn has_gpt_6_2_official_prices() {
+        let prices = load_bundled_prices().unwrap();
+        for (model, input, output, cache_write_5m, cache_read) in [
+            ("gpt-6.2-sol", 2.0, 10.0, 2.5, 0.1),
+            ("gpt-6.2-astra", 8.0, 40.0, 10.0, 0.4),
+        ] {
+            let price = prices
+                .models
+                .get(model)
+                .unwrap_or_else(|| panic!("missing model: {model}"));
+            assert_eq!(price.input_cost_per_mtoken, input);
+            assert_eq!(price.output_cost_per_mtoken, output);
+            assert_eq!(price.cache_write_5m_cost_per_mtoken, Some(cache_write_5m));
+            assert_eq!(price.cache_write_1h_cost_per_mtoken, None);
+            assert_eq!(price.cache_read_cost_per_mtoken, Some(cache_read));
+            // Official long-context rates are input/cache x2 and output x1.5 for both models.
+            // 官方长上下文价格：两个模型都是输入/缓存 x2、输出 x1.5。
+            let tier = price
+                .long_context
+                .as_ref()
+                .unwrap_or_else(|| panic!("missing long_context tier: {model}"));
+            assert_eq!(tier.input_multiplier, 2.0);
+            assert_eq!(tier.output_multiplier, 1.5);
+        }
+    }
+
+    #[test]
     fn has_gpt_6_astra_official_prices() {
         let prices = load_bundled_prices().unwrap();
         let price = prices
@@ -251,6 +278,8 @@ mod tests {
         for (model, expected) in [
             ("gpt-6-sol", 12.2),
             ("gpt-6.1-sol", 12.1),
+            ("gpt-6.2-sol", 12.1),
+            ("gpt-6.2-astra", 48.4),
             ("gpt-6-luna", 0.61),
             ("gpt-5.1", 11.375),
             ("gpt-5-mini", 2.275),

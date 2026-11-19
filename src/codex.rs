@@ -530,6 +530,8 @@ mod tests {
         for model in [
             "gpt-6-sol",
             "gpt-6.1-sol",
+            "gpt-6.2-sol",
+            "gpt-6.2-astra",
             "gpt-6-luna",
             "gpt-4o-2024-05-13",
             "gpt-99-unverified",

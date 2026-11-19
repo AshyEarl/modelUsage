@@ -1,7 +1,29 @@
 {
   "version": 1,
-  "updated_at": "2026-11-09T00:00:00Z",
+  "updated_at": "2026-11-19T00:00:00Z",
   "models": {
+    "gpt-6.2-sol": {
+      "input_cost_per_mtoken": 2.0,
+      "output_cost_per_mtoken": 10.0,
+      "cache_write_5m_cost_per_mtoken": 2.5,
+      "cache_write_1h_cost_per_mtoken": null,
+      "cache_read_cost_per_mtoken": 0.1,
+      "long_context": {
+        "input_multiplier": 2.0,
+        "output_multiplier": 1.5
+      }
+    },
+    "gpt-6.2-astra": {
+      "input_cost_per_mtoken": 8.0,
+      "output_cost_per_mtoken": 40.0,
+      "cache_write_5m_cost_per_mtoken": 10.0,
+      "cache_write_1h_cost_per_mtoken": null,
+      "cache_read_cost_per_mtoken": 0.4,
+      "long_context": {
+        "input_multiplier": 2.0,
+        "output_multiplier": 1.5
+      }
+    },
     "fable-5-2": {
       "input_cost_per_mtoken": 8.0,
       "output_cost_per_mtoken": 40.0,
