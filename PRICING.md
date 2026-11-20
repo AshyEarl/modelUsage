@@ -57,6 +57,8 @@ As of **2026-10-12**, 45 missing OpenAI text/code model IDs were added, includin
 
 As of **2026-11-19**, `gpt-6.2-sol` and `gpt-6.2-astra` were added from the official pricing page: $2/$10/$0.10/$2.50 and $8/$40/$0.40/$10 per MTok respectively. Their official long-context rates follow the same input/cache ×2, output ×1.5 pattern as the GPT-6/6.1 family. `gpt-6.2-astra-law` (same rates as `gpt-6.2-astra`, trusted-access legal configuration) is not listed separately.
 
+As of **2026-11-20**, `gpt-6.1-terra` was added from the official pricing page: $1/$5, cache read $0.05, cache write $1.25 per MTok, with the family's input/cache ×2 and output ×1.5 long-context multipliers.
+
 | Model | Input | Output | Cache read | Cache write |
 | --- | ---: | ---: | ---: | ---: |
 | `gpt-6.2-astra` | $8 | $40 | $0.40 | $10 |
@@ -64,6 +66,7 @@ As of **2026-11-19**, `gpt-6.2-sol` and `gpt-6.2-astra` were added from the offi
 | `gpt-6-astra` | $10 | $50 | $1 | $12.50 |
 | `gpt-6-sol` | $2 | $10 | $0.20 | $2.50 |
 | `gpt-6.1-sol` | $2 | $10 | $0.10 | $2.50 |
+| `gpt-6.1-terra` | $1 | $5 | $0.05 | $1.25 |
 | `gpt-6-luna` | $0.10 | $0.50 | $0.01 | $0.125 |
 | `gpt-5.6` / `gpt-5.6-sol` | $4 | $20 | $0.40 | $5 |
 | `gpt-5.6-terra` | $2 | $12 | $0.20 | $2.50 |
@@ -73,7 +76,7 @@ These are USD per million tokens at Standard short-context rates. GPT-5.6 Sol's 
 
 OpenAI's pricing page now labels cache writes by duration (30m and 12h) without Claude's 5-minute/1-hour distinction; Codex logs do not distinguish write durations. The published 30m write rate is stored in `cache_write_5m_cost_per_mtoken`; `cache_write_1h_cost_per_mtoken` stays `null`, and the calculation falls back to the published rate for either write bucket. Codex's `cache_write_input_tokens` (also accepted as `cache_write_tokens`) is stored in the 5-minute bucket. Both cache reads and cache writes are subsets of Codex input: ordinary input is `input - cache_read - cache_write`, and each bucket is charged at its own rate. When cumulative write counters are missing or reset, new requests use their last-request write counter if available; repeated snapshots remain deduplicated. If neither counter is available, writes remain zero and cannot be reconstructed from input alone. Reasoning is already included in output and is not charged again. See the [official prompt-caching accounting](https://developers.openai.com/api/docs/guides/prompt-caching).
 
-As of **2026-10-13**, the [official Standard pricing table](https://developers.openai.com/api/docs/pricing) was checked for long-context rates. The local `long_context` configuration stores input/cache ×2 and output ×1.5 for GPT-5.4/Pro, GPT-5.5/Pro, GPT-5.6/Sol/Terra/Luna, GPT-6 Astra/Sol/Luna, GPT-6.1 Sol, and (as of 2026-11-19) GPT-6.2 Astra/Sol. Only models with this configuration receive an uplift. Codex classifies each request using `last_token_usage.input_tokens > 272000` (including cached input), falling back to the cumulative-counter delta when the last-request usage is unavailable. Short and long requests remain separate through daily aggregation and fork reconciliation, so a day's input total never triggers an uplift. A cumulative-only snapshot covering multiple requests cannot reconstruct their individual context lengths. Parser version 4 automatically invalidates older Codex file caches; the pricing timestamp also advances so the new configuration replaces the previous bundled-price cache.
+As of **2026-10-13**, the [official Standard pricing table](https://developers.openai.com/api/docs/pricing) was checked for long-context rates. The local `long_context` configuration stores input/cache ×2 and output ×1.5 for GPT-5.4/Pro, GPT-5.5/Pro, GPT-5.6/Sol/Terra/Luna, GPT-6 Astra/Sol/Luna, GPT-6.1 Sol/Terra, and (as of 2026-11-19) GPT-6.2 Astra/Sol. Only models with this configuration receive an uplift. Codex classifies each request using `last_token_usage.input_tokens > 272000` (including cached input), falling back to the cumulative-counter delta when the last-request usage is unavailable. Short and long requests remain separate through daily aggregation and fork reconciliation, so a day's input total never triggers an uplift. A cumulative-only snapshot covering multiple requests cannot reconstruct their individual context lengths. Parser version 4 automatically invalidates older Codex file caches; the pricing timestamp also advances so the new configuration replaces the previous bundled-price cache.
 
 Other sources still use short-context rates. Batch/Flex/Fast/Ultrafast tiers, regional premiums, and tool-call fees are not modeled. Search models cover token costs only. Audio, image generation, and per-minute models are excluded because the current usage totals cannot distinguish their billing units.
 
@@ -100,6 +103,8 @@ As of **2026-10-09**, `sonnet-5-5` (Claude Sonnet 5.5) was added from the offici
 
 As of **2026-11-09**, `fable-5-2` (Claude Fable 5.2) was added from the official Claude model page and API pricing: input $8, output $40, 5m cache write $10, 1h cache write $16, cache read $0.20 per MTok (cache hits are 0.025x base input). This is roughly a 20% cut versus `fable-5-1`. Fast mode ($16/$80) is not modeled separately. Claude Mythos 5.2 shares the same rates but is not listed separately (invitation-only).
 
+As of **2026-11-20**, `haiku-5-5` (Claude Haiku 5.5) was added from the official Claude API pricing. Unlike other Claude models it is priced by prompt length: prompts up to 100K tokens pay input $0.10, output $0.50, 5m cache write $0.125, 1h cache write $0.20, cache read $0.01 per MTok, and every rate is 5x for prompts over 100K tokens. The over-100K tier is modeled with the `long_context` multipliers (input/cache 5x, output 5x). Prompt length counts all input tokens including cache reads and writes, and is classified per message before daily aggregation. Claude parser version 6 invalidates older Claude file caches so existing Haiku 5.5 rows pick up the tier split.
+
 As of **2026-06-09**, Kimi, MiniMax, and GLM pricing was manually verified from:
 
 - Kimi K2.6 pricing  
@@ -124,6 +129,7 @@ As of **2026-07-09**, `glm-5.2` (new) was added from the official BigModel prici
 - `fable-5-1`
 - `fable-5-2`
 - `haiku-4-5`
+- `haiku-5-5` (prompts over 100K tokens: all rates 5x)
 - `sonnet-4-5`
 - `sonnet-4-6`
 - `sonnet-5` (standard pricing: $3/$15/$3.75/$6/$0.3)
@@ -200,6 +206,7 @@ Deprecated IDs remain priced for historical usage, including `codex-mini-latest`
 - `gpt-6-luna`
 - `gpt-6-sol`
 - `gpt-6.1-sol`
+- `gpt-6.1-terra`
 - `gpt-6.2-astra`
 - `gpt-6.2-sol`
 - `gpt-rosalind-discovery`

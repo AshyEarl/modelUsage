@@ -10,6 +10,10 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::time::Instant;
 
+/// Prompt-length threshold above which Claude Haiku 5.5 charges its 5x tier.
+/// Claude Haiku 5.5 超过该提示长度后按 5 倍档计价。
+const CLAUDE_PROMPT_LENGTH_TIER_THRESHOLD: u64 = 100_000;
+
 pub struct ParsedClaudeFile {
     pub daily_rows: Vec<FileDailyRow>,
     pub message_rows: Vec<ClaudeMessageRow>,
@@ -31,7 +35,7 @@ pub fn parse_file_detailed(
     let mut unique_messages: BTreeMap<String, (UsageEvent, bool)> = BTreeMap::new();
     let mut advisor_events: BTreeMap<String, Vec<(String, UsageEvent)>> = BTreeMap::new();
     let mut compact_records = Vec::new();
-    let mut daily: BTreeMap<(NaiveDate, String, String), UsageTotals> = BTreeMap::new();
+    let mut daily: BTreeMap<(NaiveDate, String, String, bool), UsageTotals> = BTreeMap::new();
     let mut record_no: u64 = 0;
     let mut parsed_records: u64 = 0;
     let mut invalid_records: u64 = 0;
@@ -120,7 +124,22 @@ pub fn parse_file_detailed(
             estimated,
         });
         let day = aggregation_tz.date_for(event.timestamp);
-        let key = (day, event.project.clone(), event.normalized_model.clone());
+        // Claude Haiku 5.5 charges 5x when a request's prompt exceeds 100K tokens (all input
+        // tokens counted, including cache reads and writes). Only models with a long_context
+        // tier in the pricing file are affected by this flag, so other models are unchanged.
+        // Claude Haiku 5.5 在单次请求提示超过 10 万 token 时按 5 倍计价（提示长度含缓存
+        // 读写的全部输入 token）。该标志只影响价格文件里带 long_context 档的模型。
+        let prompt_length = event.usage.input
+            + event.usage.cache_write_5m
+            + event.usage.cache_write_1h
+            + event.usage.cache_read;
+        let long_context = prompt_length > CLAUDE_PROMPT_LENGTH_TIER_THRESHOLD;
+        let key = (
+            day,
+            event.project.clone(),
+            event.normalized_model.clone(),
+            long_context,
+        );
         daily.entry(key).or_default().add_assign(&event.usage);
     }
 
@@ -139,13 +158,15 @@ pub fn parse_file_detailed(
 
     let daily_rows = daily
         .into_iter()
-        .map(|((date, project, model), usage)| FileDailyRow {
-            long_context: false,
-            date,
-            project,
-            model,
-            usage,
-        })
+        .map(
+            |((date, project, model, long_context), usage)| FileDailyRow {
+                long_context,
+                date,
+                project,
+                model,
+                usage,
+            },
+        )
         .collect();
     Ok(ParsedClaudeFile {
         daily_rows,
@@ -540,6 +561,7 @@ mod tests {
             "fable-5-2"
         );
         assert_eq!(normalize_claude_model("claude-fable-5-2"), "fable-5-2");
+        assert_eq!(normalize_claude_model("claude-haiku-5-5"), "haiku-5-5");
         assert_eq!(normalize_claude_model("claude-sonnet-5"), "sonnet-5");
         assert_eq!(normalize_claude_model("claude-sonnet-5-5"), "sonnet-5-5");
         assert_eq!(
@@ -910,6 +932,43 @@ mod tests {
             .unwrap();
         assert_eq!(main_daily.usage.input, 4);
         assert_eq!(main_daily.usage.output, 1226);
+    }
+
+    #[test]
+    fn splits_haiku_5_5_daily_rows_by_prompt_length_tier() {
+        // Exactly 100K prompt tokens stays on the base tier; one token more crosses it.
+        // 恰好 10 万 token 仍是基础档；多 1 个 token 就进入 5 倍档。
+        let path = write_temp_jsonl(&[
+            event(
+                "2026-03-01T10:00:00Z",
+                "msg-haiku-base",
+                "claude-haiku-5-5",
+                50_000,
+                100,
+                40_000,
+                10_000,
+                100_100,
+            ),
+            event(
+                "2026-03-01T11:00:00Z",
+                "msg-haiku-tier",
+                "claude-haiku-5-5",
+                50_001,
+                100,
+                40_000,
+                10_000,
+                100_101,
+            ),
+        ]);
+        let rows = parse_file(&path, &AggregationTz::parse(Some("UTC")).unwrap()).unwrap();
+        let _ = fs::remove_file(&path);
+        assert_eq!(rows.len(), 2);
+        let base = rows.iter().find(|row| !row.long_context).unwrap();
+        let tiered = rows.iter().find(|row| row.long_context).unwrap();
+        assert_eq!(base.model, "haiku-5-5");
+        assert_eq!(base.usage.input, 50_000);
+        assert_eq!(tiered.model, "haiku-5-5");
+        assert_eq!(tiered.usage.input, 50_001);
     }
 
     #[test]

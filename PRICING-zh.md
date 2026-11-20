@@ -57,6 +57,8 @@
 
 截至 **2026-11-19**，新增 `gpt-6.2-sol` 与 `gpt-6.2-astra`，来源为官方价格页：分别为 $2/$10/$0.10/$2.50 与 $8/$40/$0.40/$10（每百万 token）。其官方长上下文价格与 GPT-6/6.1 系列一致，即输入／缓存 ×2、输出 ×1.5。`gpt-6.2-astra-law`（与 `gpt-6.2-astra` 同价，受信访问的法律配置）未单独列出。
 
+截至 **2026-11-20**，新增 `gpt-6.1-terra`，来源为官方价格页：$1/$5、缓存读取 $0.05、缓存写入 $1.25（每百万 token），长上下文沿用系列输入／缓存 ×2、输出 ×1.5 倍率。
+
 | 模型 | 输入 | 输出 | 缓存读取 | 缓存写入 |
 | --- | ---: | ---: | ---: | ---: |
 | `gpt-6.2-astra` | $8 | $40 | $0.40 | $10 |
@@ -64,6 +66,7 @@
 | `gpt-6-astra` | $10 | $50 | $1 | $12.50 |
 | `gpt-6-sol` | $2 | $10 | $0.20 | $2.50 |
 | `gpt-6.1-sol` | $2 | $10 | $0.10 | $2.50 |
+| `gpt-6.1-terra` | $1 | $5 | $0.05 | $1.25 |
 | `gpt-6-luna` | $0.10 | $0.50 | $0.01 | $0.125 |
 | `gpt-5.6` / `gpt-5.6-sol` | $4 | $20 | $0.40 | $5 |
 | `gpt-5.6-terra` | $2 | $12 | $0.20 | $2.50 |
@@ -73,7 +76,7 @@
 
 OpenAI 价格页现在按时长标注缓存写入（30 分钟和 12 小时），没有 Claude 的 5 分钟／1 小时区分；Codex 日志本身也不区分写入时长。这里将官方 30 分钟写入价存入 `cache_write_5m_cost_per_mtoken`，`cache_write_1h_cost_per_mtoken` 保持 `null`，计算逻辑会为任一写入桶回退到该官方价格。Codex 的 `cache_write_input_tokens`（也接受 `cache_write_tokens`）归入 5 分钟写入桶。缓存读取和写入都是 Codex 输入的子集：普通输入为 `input - cache_read - cache_write`，各桶分别按对应单价计费。累计写入计数缺失或重置时，新请求会在可用时采用单次写入计数；重复快照仍会去重。如果两种写入计数都不可用，则写入仍为零，无法仅凭 input 重建。Reasoning 已包含在 output 中，不会重复计费。参见[官方缓存计费规则](https://developers.openai.com/api/docs/guides/prompt-caching)。
 
-截至 **2026-10-13**，已核对[官方 Standard 价格表](https://developers.openai.com/api/docs/pricing)中的长上下文价格。本地 `long_context` 配置为 GPT-5.4/Pro、GPT-5.5/Pro、GPT-5.6/Sol/Terra/Luna、GPT-6 Astra/Sol/Luna、GPT-6.1 Sol，以及（截至 2026-11-19）GPT-6.2 Astra/Sol 记录输入／缓存 ×2、输出 ×1.5 的倍率。只有带此配置的模型才会加价。Codex 按每次请求的 `last_token_usage.input_tokens > 272000`（包含缓存输入）判断；缺失单次 usage 时回退到累计计数差分。短、长请求在日报汇总和 fork 去重中保持分开，因此不会把一天的累计输入误当成单次长上下文。若只有覆盖多个请求的累计快照，则无法重建每次请求的上下文长度。解析器版本 4 会自动使旧 Codex 文件缓存失效；同时推进价格时间戳，使新配置替换之前内置价格的缓存。
+截至 **2026-10-13**，已核对[官方 Standard 价格表](https://developers.openai.com/api/docs/pricing)中的长上下文价格。本地 `long_context` 配置为 GPT-5.4/Pro、GPT-5.5/Pro、GPT-5.6/Sol/Terra/Luna、GPT-6 Astra/Sol/Luna、GPT-6.1 Sol/Terra，以及（截至 2026-11-19）GPT-6.2 Astra/Sol 记录输入／缓存 ×2、输出 ×1.5 的倍率。只有带此配置的模型才会加价。Codex 按每次请求的 `last_token_usage.input_tokens > 272000`（包含缓存输入）判断；缺失单次 usage 时回退到累计计数差分。短、长请求在日报汇总和 fork 去重中保持分开，因此不会把一天的累计输入误当成单次长上下文。若只有覆盖多个请求的累计快照，则无法重建每次请求的上下文长度。解析器版本 4 会自动使旧 Codex 文件缓存失效；同时推进价格时间戳，使新配置替换之前内置价格的缓存。
 
 其他来源仍按短上下文价格估算。当前未建模 Batch/Flex/Fast/Ultrafast 档位、区域溢价及工具调用费。搜索模型仅计算 token 成本。音频、图像生成及按分钟计费模型不在本次范围，因为现有用量字段无法区分其计费单位。
 
@@ -100,6 +103,8 @@ Chat 与历史型号价格另核对了以下官方模型页：
 
 截至 **2026-11-09**，新增 `fable-5-2`（Claude Fable 5.2），来源为 Claude 官方模型页与 API 价格：输入 $8、输出 $40、5 分钟缓存写入 $10、1 小时缓存写入 $16、缓存读取 $0.20（每百万 token；该模型缓存命中为基础输入价的 0.025 倍），较 `fable-5-1` 约降价 20%。Fast mode（$16/$80）未单独建模。Claude Mythos 5.2 与其同价，但因仅邀请制可用，未单独列出。
 
+截至 **2026-11-20**，新增 `haiku-5-5`（Claude Haiku 5.5），来源为 Claude API 官方价格。与其他 Claude 模型不同，它按提示长度分档：10 万 token 以内为输入 $0.10、输出 $0.50、5 分钟缓存写 $0.125、1 小时缓存写 $0.20、缓存读 $0.01（每百万 token）；提示超过 10 万 token 后所有单价为 5 倍。超过阈值的一档用 `long_context` 倍率建模（输入/缓存 5 倍、输出 5 倍）。提示长度计入全部输入 token（含缓存读写），并在日报汇总前按每条消息判定。Claude 解析器版本升至 6，旧 Claude 文件缓存自动失效，已有的 Haiku 5.5 行会重新分档。
+
 截至 **2026-06-09**，Kimi、MiniMax 和 GLM 价格是人工从官方页面核对后写入的：
 
 - Kimi K2.6 pricing  
@@ -124,6 +129,7 @@ MiniMax 和 GLM 官方价格以人民币发布。这里按 **2026-06-09 00:02:31
 - `fable-5-1`
 - `fable-5-2`
 - `haiku-4-5`
+- `haiku-5-5`（提示超过 10 万 token：全部单价 5 倍）
 - `sonnet-4-5`
 - `sonnet-4-6`
 - `sonnet-5`（标准价：$3/$15/$3.75/$6/$0.3）
@@ -200,6 +206,7 @@ MiniMax 和 GLM 官方价格以人民币发布。这里按 **2026-06-09 00:02:31
 - `gpt-6-luna`
 - `gpt-6-sol`
 - `gpt-6.1-sol`
+- `gpt-6.1-terra`
 - `gpt-6.2-astra`
 - `gpt-6.2-sol`
 - `gpt-rosalind-discovery`

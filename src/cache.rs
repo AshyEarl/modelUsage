@@ -13,7 +13,9 @@ const STATS_FILE_NAME: &str = "stats.json";
 const PRICING_FILE_NAME: &str = "pricing.json";
 const UPDATE_FILE_NAME: &str = "update.json";
 const COPILOT_OTEL_FILE_NAME: &str = "copilot-otel.json";
-const CLAUDE_PARSER_VERSION: u32 = 5;
+// Version 6 adds the Haiku 5.5 prompt-length tier flag to Claude daily rows.
+// 版本 6 为 Claude 日行增加 Haiku 5.5 提示长度分档标志。
+const CLAUDE_PARSER_VERSION: u32 = 6;
 const CODEX_PARSER_VERSION: u32 = 4;
 const COPILOT_PARSER_VERSION: u32 = 5;
 const OPENCODE_PARSER_VERSION: u32 = 1;

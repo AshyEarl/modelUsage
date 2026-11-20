@@ -1,7 +1,18 @@
 {
   "version": 1,
-  "updated_at": "2026-11-19T00:00:00Z",
+  "updated_at": "2026-11-20T00:00:00Z",
   "models": {
+    "haiku-5-5": {
+      "input_cost_per_mtoken": 0.1,
+      "output_cost_per_mtoken": 0.5,
+      "cache_write_5m_cost_per_mtoken": 0.125,
+      "cache_write_1h_cost_per_mtoken": 0.2,
+      "cache_read_cost_per_mtoken": 0.01,
+      "long_context": {
+        "input_multiplier": 5.0,
+        "output_multiplier": 5.0
+      }
+    },
     "gpt-6.2-sol": {
       "input_cost_per_mtoken": 2.0,
       "output_cost_per_mtoken": 10.0,
@@ -286,6 +297,17 @@
       "cache_write_5m_cost_per_mtoken": 2.5,
       "cache_write_1h_cost_per_mtoken": null,
       "cache_read_cost_per_mtoken": 0.1,
+      "long_context": {
+        "input_multiplier": 2.0,
+        "output_multiplier": 1.5
+      }
+    },
+    "gpt-6.1-terra": {
+      "input_cost_per_mtoken": 1.0,
+      "output_cost_per_mtoken": 5.0,
+      "cache_write_5m_cost_per_mtoken": 1.25,
+      "cache_write_1h_cost_per_mtoken": null,
+      "cache_read_cost_per_mtoken": 0.05,
       "long_context": {
         "input_multiplier": 2.0,
         "output_multiplier": 1.5

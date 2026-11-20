@@ -278,6 +278,7 @@ mod tests {
         for (model, expected) in [
             ("gpt-6-sol", 12.2),
             ("gpt-6.1-sol", 12.1),
+            ("gpt-6.1-terra", 6.05),
             ("gpt-6.2-sol", 12.1),
             ("gpt-6.2-astra", 48.4),
             ("gpt-6-luna", 0.61),
@@ -420,6 +421,37 @@ mod tests {
         assert_eq!(price.cache_write_5m_cost_per_mtoken, Some(5.0));
         assert_eq!(price.cache_write_1h_cost_per_mtoken, Some(8.0));
         assert_eq!(price.cache_read_cost_per_mtoken, Some(0.2));
+    }
+
+    #[test]
+    fn has_haiku_5_5_official_prices() {
+        let prices = load_bundled_prices().unwrap();
+        let price = prices
+            .models
+            .get("haiku-5-5")
+            .unwrap_or_else(|| panic!("missing model: haiku-5-5"));
+        // Base tier covers prompts up to 100K tokens; every rate is 5x above that threshold.
+        // 基础档对应 10 万 token 以内的提示；超过阈值后所有单价都是 5 倍。
+        assert_eq!(price.input_cost_per_mtoken, 0.1);
+        assert_eq!(price.output_cost_per_mtoken, 0.5);
+        assert_eq!(price.cache_write_5m_cost_per_mtoken, Some(0.125));
+        assert_eq!(price.cache_write_1h_cost_per_mtoken, Some(0.2));
+        assert_eq!(price.cache_read_cost_per_mtoken, Some(0.01));
+        let tier = price.long_context.as_ref().unwrap();
+        assert_eq!(tier.input_multiplier, 5.0);
+        assert_eq!(tier.output_multiplier, 5.0);
+        let usage = UsageTotals {
+            input: 1_000_000,
+            output: 1_000_000,
+            cache_read: 0,
+            cache_write_5m: 0,
+            cache_write_1h: 0,
+            ..UsageTotals::default()
+        };
+        let base = compute_cost(SourceKind::Claude, "haiku-5-5", &usage, &prices, false).unwrap();
+        assert!((base - 0.6).abs() < 0.000001);
+        let tiered = compute_cost(SourceKind::Claude, "haiku-5-5", &usage, &prices, true).unwrap();
+        assert!((tiered - 3.0).abs() < 0.000001);
     }
 
     #[test]
